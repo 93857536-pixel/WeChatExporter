@@ -1,0 +1,31 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS app bundle (built locally)
+WeChatExporter.app/
+*.dSYM/
+
+# Xcode
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# Secrets & local data — never commit
+raw_key.bin
+all_keys.json
+**/decrypted/
+*.db
+*.db-wal
+*.db-shm
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.idea/
+*.swp
+*~
