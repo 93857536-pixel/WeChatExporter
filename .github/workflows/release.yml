@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS (arm64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build app with bundled wx-cli
+        run: ./build_app.sh
+        env:
+          WX_CLI_VERSION: v0.7.2
+
+      - name: Create zip
+        run: ditto -c -k --sequesterRsrc --keepParent WeChatExporter.app WeChatExporter-macOS-arm64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: WeChatExporter-macOS-arm64.zip
+
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build app with bundled wx-cli
+        shell: pwsh
+        run: |
+          Set-Location windows
+          ./build.ps1 -WxCliVersion v0.3.0
+
+      - name: Create zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path windows/dist/WeChatExporter/* `
+            -DestinationPath WeChatExporter-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: WeChatExporter-Windows-x64.zip
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          merge-multiple: true
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
