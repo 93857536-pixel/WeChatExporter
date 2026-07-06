@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent $PSScriptRoot
+$Root = $PSScriptRoot
 
 & (Join-Path $Root "build.ps1") -WxCliVersion $WxCliVersion
 
