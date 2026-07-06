@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.3.4] - 2026-07-06
+
+### Fixed
+- macOS 加载会话列表超时：移除 `--all`（最多 2 万条），改用 `--limit 10000`，超时延长至 5 分钟
+- 未准备数据时不再盲目加载会话，避免首次启动长时间卡住
+- wx-cli 执行过程实时输出日志，超时时给出更明确的提示
+
+### Changed
+- 解密命令超时延长至 10 分钟；会话查询使用 `--no-server` 直连本地缓存
+
 ## [2.3.3] - 2026-07-06
 
 ### Fixed

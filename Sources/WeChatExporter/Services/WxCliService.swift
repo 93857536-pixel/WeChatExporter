@@ -57,29 +57,41 @@ final class WxCliService {
         return output.contains("All checks passed")
     }
 
+    /// 密钥已保存且解密缓存可用，才适合查询会话列表。
+    func isPreparedForQuery() async -> Bool {
+        guard let status = try? await run(["status"], timeout: 30) else { return false }
+        guard status.contains("key ✅") else { return false }
+        guard !status.contains("no cache"), !status.contains("cache empty") else { return false }
+        return true
+    }
+
     func prepareData(log: @escaping (String) -> Void) async throws {
         log("检查运行环境…")
         guard await doctorOK() else {
             throw AppError.decryptFailed("wx-cli 环境检查未通过。请确认 SIP 已关闭且微信已登录。")
         }
 
-        let status = try await statusText()
+        let status = try await run(["status"], timeout: 30, log: log)
         let needsKey = !status.contains("key ✅")
         if needsKey {
             log("正在捕获解密密钥（会重启微信，约 1-2 分钟）…")
-            _ = try await run(["key", "extract", "--timeout", "120"], timeout: 180)
+            _ = try await run(["key", "extract", "--timeout", "120"], timeout: 180, log: log)
         } else {
             log("使用已保存的密钥")
         }
 
         log("正在解密本地数据库…")
-        _ = try await run(["decrypt"], timeout: 300)
+        _ = try await run(["decrypt"], timeout: 600, log: log)
         log("数据库解密完成")
     }
 
     func loadSessions(log: @escaping (String) -> Void) async throws -> [ContactItem] {
-        log("正在加载会话列表…")
-        let output = try await run(["sessions", "--format", "json", "--all"], timeout: 120)
+        log("正在加载会话列表（会话较多时可能需要 1-3 分钟）…")
+        let output = try await run(
+            ["sessions", "--format", "json", "--limit", "10000", "--no-server"],
+            timeout: 300,
+            log: log
+        )
         let payload = try Self.extractJSON(from: output)
         let response = try JSONDecoder().decode(WxCliSessionsResponse.self, from: payload)
         let items = response.items
@@ -123,8 +135,8 @@ final class WxCliService {
             jsonArgs.append("--no-media")
         }
 
-        _ = try await run(txtArgs, timeout: 600)
-        _ = try await run(jsonArgs, timeout: 600)
+        _ = try await run(txtArgs, timeout: 600, log: log)
+        _ = try await run(jsonArgs, timeout: 600, log: log)
 
         let jsonURL = outputDir.appendingPathComponent("chat.json")
         if FileManager.default.fileExists(atPath: jsonURL.path),
@@ -140,7 +152,11 @@ final class WxCliService {
         return 0
     }
 
-    private func run(_ args: [String], timeout: TimeInterval = 120) async throws -> String {
+    private func run(
+        _ args: [String],
+        timeout: TimeInterval = 120,
+        log: ((String) -> Void)? = nil
+    ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let resumeOnMain: (Result<String, Error>) -> Void = { result in
                 DispatchQueue.main.async {
@@ -151,6 +167,14 @@ final class WxCliService {
                         continuation.resume(throwing: error)
                     }
                 }
+            }
+
+            let collector = OutputCollector()
+            let emitLog: (String) -> Void = { line in
+                guard let log else { return }
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                DispatchQueue.main.async { log(trimmed) }
             }
 
             let process = Process()
@@ -169,6 +193,23 @@ final class WxCliService {
                 group.leave()
             }
 
+            func consume(_ handle: FileHandle, isErr: Bool) {
+                let chunk = handle.availableData
+                guard !chunk.isEmpty else { return }
+                collector.append(chunk, isErr: isErr)
+                guard let text = String(data: chunk, encoding: .utf8) else { return }
+                for line in text.components(separatedBy: .newlines) where !line.isEmpty {
+                    emitLog(line)
+                }
+            }
+
+            stdout.fileHandleForReading.readabilityHandler = { handle in
+                consume(handle, isErr: false)
+            }
+            stderr.fileHandleForReading.readabilityHandler = { handle in
+                consume(handle, isErr: true)
+            }
+
             do {
                 try process.run()
             } catch {
@@ -180,14 +221,21 @@ final class WxCliService {
                 let deadline = DispatchTime.now() + timeout
                 if group.wait(timeout: deadline) == .timedOut {
                     process.terminate()
-                    resumeOnMain(.failure(AppError.exportFailed("wx-cli 执行超时")))
+                    let seconds = Int(timeout)
+                    resumeOnMain(.failure(AppError.exportFailed(
+                        "wx-cli 执行超时（>\(seconds) 秒）。若尚未准备数据，请先点击「准备数据」；数据库较大时请耐心等待后重试。"
+                    )))
                     return
                 }
 
-                let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-                let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-                let out = String(data: outData, encoding: .utf8) ?? ""
-                let err = String(data: errData, encoding: .utf8) ?? ""
+                stdout.fileHandleForReading.readabilityHandler = nil
+                stderr.fileHandleForReading.readabilityHandler = nil
+
+                collector.append(stdout.fileHandleForReading.readDataToEndOfFile(), isErr: false)
+                collector.append(stderr.fileHandleForReading.readDataToEndOfFile(), isErr: true)
+
+                let out = String(data: collector.stdout, encoding: .utf8) ?? ""
+                let err = String(data: collector.stderr, encoding: .utf8) ?? ""
 
                 if Self.procExitOK(process.terminationStatus) {
                     resumeOnMain(.success(out + err))
@@ -241,6 +289,19 @@ final class WxCliService {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
         return formatter.string(from: date)
+    }
+}
+
+private final class OutputCollector {
+    private let lock = NSLock()
+    private(set) var stdout = Data()
+    private(set) var stderr = Data()
+
+    func append(_ data: Data, isErr: Bool) {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        if isErr { stderr.append(data) } else { stdout.append(data) }
+        lock.unlock()
     }
 }
 
