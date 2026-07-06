@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent $PSScriptRoot
+$Root = $PSScriptRoot
 $Project = Join-Path $Root "WeChatExporter.Windows"
 $OutDir = Join-Path $Root "publish"
 $DistDir = Join-Path $Root "dist\WeChatExporter"
