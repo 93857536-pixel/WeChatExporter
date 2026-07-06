@@ -8,6 +8,8 @@ BINARY="$ROOT/.build/release/WeChatExporter"
 ICON_SRC="$ROOT/assets/AppIcon.icns"
 ICON_PNG="$ROOT/assets/AppIcon.png"
 WX_CLI_VERSION="${WX_CLI_VERSION:-v0.7.2}"
+APP_VERSION="${APP_VERSION:-2.3.3}"
+APP_BUILD="${APP_BUILD:-7}"
 
 echo "编译原生 macOS 应用…"
 cd "$ROOT"
@@ -21,11 +23,12 @@ echo "打包内置 wx-cli ${WX_CLI_VERSION}…"
 WX_CLI_VERSION="$WX_CLI_VERSION" bash "$ROOT/scripts/bundle_wx_cli.sh" "$APP_DIR/Contents/Resources"
 chmod +x "$APP_DIR/Contents/Resources/wx-cli"
 
-bash "$ROOT/scripts/prepare_icon.sh" 2>/dev/null || true
+bash "$ROOT/scripts/prepare_icon.sh"
 if [[ -f "$ICON_SRC" ]]; then
   cp "$ICON_SRC" "$APP_DIR/Contents/Resources/AppIcon.icns"
 elif [[ -f "$ICON_PNG" ]]; then
-  cp "$ICON_PNG" "$APP_DIR/Contents/Resources/AppIcon.png"
+  echo "警告：未生成 AppIcon.icns，请在 macOS 上运行 scripts/prepare_icon.sh"
+  echo "      当前环境无法生成正确尺寸的 macOS 图标。"
 fi
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
@@ -50,9 +53,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.3.2</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>6</string>
+    <string>${APP_BUILD}</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSRequiresNativeExecution</key>

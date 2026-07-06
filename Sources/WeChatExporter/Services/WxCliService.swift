@@ -142,6 +142,17 @@ final class WxCliService {
 
     private func run(_ args: [String], timeout: TimeInterval = 120) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
+            let resumeOnMain: (Result<String, Error>) -> Void = { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let value):
+                        continuation.resume(returning: value)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+
             let process = Process()
             process.executableURL = executable
             process.arguments = args
@@ -154,22 +165,22 @@ final class WxCliService {
 
             let group = DispatchGroup()
             group.enter()
-            process.terminationHandler = { proc in
+            process.terminationHandler = { _ in
                 group.leave()
             }
 
             do {
                 try process.run()
             } catch {
-                continuation.resume(throwing: AppError.exportFailed("无法启动 wx-cli：\(error.localizedDescription)"))
+                resumeOnMain(.failure(AppError.exportFailed("无法启动 wx-cli：\(error.localizedDescription)")))
                 return
             }
 
-            DispatchQueue.global().async {
+            DispatchQueue.global(qos: .userInitiated).async {
                 let deadline = DispatchTime.now() + timeout
                 if group.wait(timeout: deadline) == .timedOut {
                     process.terminate()
-                    continuation.resume(throwing: AppError.exportFailed("wx-cli 执行超时"))
+                    resumeOnMain(.failure(AppError.exportFailed("wx-cli 执行超时")))
                     return
                 }
 
@@ -179,10 +190,10 @@ final class WxCliService {
                 let err = String(data: errData, encoding: .utf8) ?? ""
 
                 if Self.procExitOK(process.terminationStatus) {
-                    continuation.resume(returning: out + err)
+                    resumeOnMain(.success(out + err))
                 } else {
                     let message = Self.trimFailureOutput(out + "\n" + err)
-                    continuation.resume(throwing: AppError.exportFailed(message))
+                    resumeOnMain(.failure(AppError.exportFailed(message)))
                 }
             }
         }

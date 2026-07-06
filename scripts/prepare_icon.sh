@@ -8,13 +8,26 @@ ICONSET="$ROOT/assets/AppIcon.iconset"
 ICNS="$ROOT/assets/AppIcon.icns"
 
 if [[ ! -f "$PNG" ]]; then
-  echo "跳过图标：未找到 $PNG"
-  exit 0
+  echo "错误：未找到 $PNG"
+  exit 1
 fi
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "跳过 icns 生成：当前非 macOS 环境"
+  echo "跳过 icns 生成：当前非 macOS 环境（Release 构建需在 macOS 上生成 icns）"
   exit 0
+fi
+
+# 确保源图为 1024×1024，macOS 图标需要标准尺寸
+read -r WIDTH HEIGHT < <(sips -g pixelWidth -g pixelHeight "$PNG" 2>/dev/null | awk '/pixel/ {print $2}')
+if [[ "$WIDTH" != "$HEIGHT" ]]; then
+  side=$(( WIDTH < HEIGHT ? WIDTH : HEIGHT ))
+  echo "裁剪源图为 ${side}×${side}（当前 ${WIDTH}×${HEIGHT}）…"
+  sips -c "$side" "$side" "$PNG" --out "$PNG" >/dev/null
+fi
+read -r WIDTH HEIGHT < <(sips -g pixelWidth -g pixelHeight "$PNG" 2>/dev/null | awk '/pixel/ {print $2}')
+if [[ "$WIDTH" != "1024" || "$HEIGHT" != "1024" ]]; then
+  echo "调整源图尺寸为 1024×1024（当前 ${WIDTH}×${HEIGHT}）…"
+  sips -z 1024 1024 "$PNG" --out "$PNG" >/dev/null
 fi
 
 rm -rf "$ICONSET"

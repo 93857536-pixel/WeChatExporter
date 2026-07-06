@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.3.3] - 2026-07-06
+
+### Fixed
+- macOS 启动崩溃：修复 wx-cli 在后台线程回调导致 SwiftUI 菜单栏断言失败（SIGABRT）
+- 将自动加载会话列表从 `init` 延迟到界面 `onAppear`，避免启动阶段竞态
+
+### Changed
+- 全新科技感应用图标（深青渐变 + 导出箭头）
+- 构建脚本不再将 PNG 误当作 icns 使用，确保 Dock/Finder 图标尺寸正确
+
 ## [2.3.2] - 2026-07-06
 
 ### Added
