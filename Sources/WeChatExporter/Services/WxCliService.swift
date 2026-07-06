@@ -111,26 +111,20 @@ final class WxCliService {
         return items.sorted { $0.lastTimestamp > $1.lastTimestamp }
     }
 
-    func export(contact: ContactItem, outputDir: URL, log: @escaping (String) -> Void) async throws -> Int {
+    func export(contact: ContactItem, outputDir: URL, includeMedia: Bool = false, log: @escaping (String) -> Void) async throws -> Int {
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         let query = !contact.displayName.isEmpty ? contact.displayName : contact.id
-        log("导出：\(contact.displayName)")
+        log("导出：\(contact.displayName)\(includeMedia ? "（含媒体）" : "")")
 
-        _ = try await run([
-            "export", query,
-            "--output", outputDir.path,
-            "--format", "txt",
-            "--all",
-            "--no-media",
-        ], timeout: 600)
+        var txtArgs = ["export", query, "--output", outputDir.path, "--format", "txt", "--all"]
+        var jsonArgs = ["export", query, "--output", outputDir.path, "--format", "json", "--all"]
+        if !includeMedia {
+            txtArgs.append("--no-media")
+            jsonArgs.append("--no-media")
+        }
 
-        _ = try await run([
-            "export", query,
-            "--output", outputDir.path,
-            "--format", "json",
-            "--all",
-            "--no-media",
-        ], timeout: 600)
+        _ = try await run(txtArgs, timeout: 600)
+        _ = try await run(jsonArgs, timeout: 600)
 
         let jsonURL = outputDir.appendingPathComponent("chat.json")
         if FileManager.default.fileExists(atPath: jsonURL.path),

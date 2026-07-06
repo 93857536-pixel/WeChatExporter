@@ -15,6 +15,8 @@ final class AppViewModel: ObservableObject {
     @Published var logs: [String] = []
     @Published var isBusy = false
     @Published var statusText = "就绪"
+    @Published var isDataReady = false
+    @Published var includeMedia = false
     @Published var alertMessage: String?
     @Published var showAlert = false
 
@@ -55,6 +57,12 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    var readinessHint: String {
+        if isBusy { return "正在处理，请稍候…" }
+        if isDataReady { return "已就绪 · 共 \(contacts.count) 个会话，选择后点击「导出选中」" }
+        return "首次使用：请先点击「准备数据」（需微信已登录，macOS 需关闭 SIP）"
+    }
+
     var filteredContacts: [ContactItem] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return contacts }
@@ -77,7 +85,7 @@ final class AppViewModel: ObservableObject {
         switch backend {
         case .wxCli(let wxCli):
             appendLog("正在自动加载会话列表…")
-            await refreshContacts(using: wxCli)
+            await loadContactsSilently(using: wxCli)
         case .native(let paths):
             if paths.isDecryptedHealthy {
                 appendLog("检测到已解密数据，正在加载联系人…")
@@ -115,6 +123,7 @@ final class AppViewModel: ObservableObject {
             }
             alertMessage = "数据准备完成，现在可以导出聊天记录了。"
             showAlert = true
+            isDataReady = true
         } catch {
             presentError(error.localizedDescription)
         }
@@ -132,9 +141,23 @@ final class AppViewModel: ObservableObject {
     private func refreshContacts(using wxCli: WxCliService) async {
         do {
             contacts = try await wxCli.loadSessions(log: { self.appendLog($0) })
+            isDataReady = !contacts.isEmpty
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
         } catch {
+            isDataReady = false
             presentError(error.localizedDescription)
+        }
+    }
+
+    private func loadContactsSilently(using wxCli: WxCliService) async {
+        do {
+            contacts = try await wxCli.loadSessions(log: { self.appendLog($0) })
+            isDataReady = !contacts.isEmpty
+            statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
+        } catch {
+            isDataReady = false
+            appendLog("自动加载失败：\(error.localizedDescription)")
+            appendLog("首次使用请点击「准备数据」。")
         }
     }
 
@@ -146,6 +169,7 @@ final class AppViewModel: ObservableObject {
         do {
             contacts = try ContactStore.loadContacts(from: paths.decryptedDir)
             appendLog("已加载 \(contacts.count) 个会话")
+            isDataReady = !contacts.isEmpty
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
         } catch {
             presentError(error.localizedDescription)
@@ -206,7 +230,12 @@ final class AppViewModel: ObservableObject {
                 for contact in selected {
                     let safeName = contact.displayName.replacingOccurrences(of: "/", with: "_")
                     let outDir = base.appendingPathComponent(safeName, isDirectory: true)
-                    let count = try await wxCli.export(contact: contact, outputDir: outDir, log: { self.appendLog($0) })
+                    let count = try await wxCli.export(
+                        contact: contact,
+                        outputDir: outDir,
+                        includeMedia: includeMedia,
+                        log: { self.appendLog($0) }
+                    )
                     summary.append("• \(contact.displayName)：\(count) 条")
                 }
             case .native(let paths):

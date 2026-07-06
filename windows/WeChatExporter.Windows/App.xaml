@@ -8,5 +8,6 @@
         <SolidColorBrush x:Key="AccentSoftBrush" Color="#1A07C35F"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBooleanConverter x:Key="NotBool"/>
+        <local:AdminRestartVisibilityConverter x:Key="AdminVis"/>
     </Application.Resources>
 </Application>

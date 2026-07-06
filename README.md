@@ -14,12 +14,14 @@
 | 平台 | 文件 | 说明 |
 |------|------|------|
 | macOS (Apple Silicon) | `WeChatExporter-macOS-arm64.zip` | 解压后打开 `.app`，内置 wx-cli |
-| Windows (64 位) | `WeChatExporter-Windows-x64.zip` | 解压后运行 `WeChatExporter.exe`，内置 wx.exe |
+| Windows (64 位) | `WeChatExporter-Windows-x64.zip` | 解压后运行 `WeChatExporter.exe`，**自包含，无需安装 .NET** |
 
 ## 功能
 
 - 图形界面：搜索、多选联系人/群聊
 - **内置 wx-cli**：安装即用，无需单独安装命令行工具
+- **就绪状态提示**：界面顶部显示当前进度（是否已完成「准备数据」）
+- **可选媒体导出**：勾选后同时导出图片等媒体（macOS / Windows，依赖 wx-cli 能力）
 - 自动检测微信数据目录
 - 通过 LLDB / 内存扫描捕获密钥并解密（微信 4.x SQLCipher）
 - 导出聊天记录到本地文件夹
@@ -40,7 +42,7 @@
 | 项目 | 要求 |
 |------|------|
 | 系统 | Windows 10 / 11（64 位） |
-| 运行时 | [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)（Release 包需安装） |
+| 运行时 | 无需安装（v2.3.0+ Release 为自包含包） |
 | 微信 | PC 版 4.x（已登录并同步过聊天记录） |
 | 权限 | 首次「准备数据」建议以管理员身份运行 |
 

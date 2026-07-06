@@ -18,6 +18,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _exportPath;
     private string _statusText = "就绪";
     private bool _isBusy;
+    private bool _isDataReady;
+    private bool _includeMedia;
     private string? _alertMessage;
 
     public MainViewModel(WxCliService wxCli)
@@ -30,7 +32,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Logs = [];
         ContactsView = CollectionViewSource.GetDefaultView(Contacts);
         ContactsView.Filter = FilterContact;
+        IsRunningAsAdmin = PlatformHelper.IsRunningAsAdministrator();
         AppendLog(wxCli.IsBundled ? "使用内置 wx-cli（即装即用）" : "使用系统 wx-cli");
+        if (!IsRunningAsAdmin)
+            AppendLog("提示：首次「准备数据」建议以管理员身份运行（可点击下方按钮）");
         _ = BootstrapAsync();
     }
 
@@ -38,6 +43,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICollectionView ContactsView { get; }
     public ObservableCollection<ContactItem> SelectedContacts { get; } = [];
     public ObservableCollection<string> Logs { get; }
+
+    public bool IsRunningAsAdmin { get; }
+
+    public string ReadinessHint
+    {
+        get
+        {
+            if (IsBusy) return "正在处理，请稍候…";
+            if (IsDataReady) return $"已就绪 · 共 {Contacts.Count} 个会话，选择后点击「导出选中」";
+            if (!IsRunningAsAdmin)
+                return "首次使用：请先以管理员身份运行，再点击「准备数据」（需微信 PC 版已登录）";
+            return "首次使用：请点击「准备数据」（需微信 PC 版已登录）";
+        }
+    }
 
     public string SearchText
     {
@@ -63,6 +82,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    public bool IncludeMedia
+    {
+        get => _includeMedia;
+        set
+        {
+            if (_includeMedia == value) return;
+            _includeMedia = value;
+            OnPropertyChanged();
+        }
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -83,6 +113,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _isBusy = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanExport));
+            OnPropertyChanged(nameof(ReadinessHint));
+        }
+    }
+
+    public bool IsDataReady
+    {
+        get => _isDataReady;
+        private set
+        {
+            if (_isDataReady == value) return;
+            _isDataReady = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ReadinessHint));
         }
     }
 
@@ -116,6 +159,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanExport));
     }
 
+    public void RestartAsAdministrator()
+    {
+        if (PlatformHelper.TryRestartAsAdministrator())
+            Application.Current.Shutdown();
+        else
+            ShowError("无法以管理员身份重启，请手动右键 WeChatExporter.exe → 以管理员身份运行。");
+    }
+
     public async Task PrepareDataAsync()
     {
         if (IsBusy) return;
@@ -125,7 +176,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppendLog("开始准备数据…");
             await _wxCli.PrepareDataAsync(AppendLog);
-            await RefreshContactsAsync();
+            await LoadContactsInternalAsync(showErrorDialog: true);
             ShowAlert("数据准备完成，现在可以导出聊天记录了。");
         }
         catch (Exception ex)
@@ -146,17 +197,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         StatusText = "加载会话…";
         try
         {
-            var items = await _wxCli.LoadSessionsAsync(AppendLog);
-            Contacts.Clear();
-            foreach (var item in items)
-                Contacts.Add(item);
-            ContactsView.Refresh();
-            OnPropertyChanged(nameof(FilteredCountText));
-            StatusText = FilteredCountText;
-        }
-        catch (Exception ex)
-        {
-            ShowError(ex.Message);
+            await LoadContactsInternalAsync(showErrorDialog: true);
         }
         finally
         {
@@ -183,7 +224,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 var safeName = contact.DisplayName.Replace('/', '_');
                 var outDir = Path.Combine(ExportPath, safeName);
-                var count = await _wxCli.ExportAsync(contact, outDir, AppendLog);
+                var count = await _wxCli.ExportAsync(contact, outDir, IncludeMedia, AppendLog);
                 summary.Add($"• {contact.DisplayName}：{count} 条");
             }
 
@@ -220,6 +261,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task BootstrapAsync()
     {
         AppendLog("正在自动加载会话列表…");
+        IsBusy = true;
+        try
+        {
+            await LoadContactsInternalAsync(showErrorDialog: false);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task LoadContactsInternalAsync(bool showErrorDialog)
+    {
         try
         {
             var items = await _wxCli.LoadSessionsAsync(AppendLog);
@@ -229,11 +283,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ContactsView.Refresh();
             OnPropertyChanged(nameof(FilteredCountText));
             StatusText = FilteredCountText;
+            IsDataReady = Contacts.Count > 0;
         }
         catch (Exception ex)
         {
-            AppendLog($"自动加载失败：{ex.Message}");
-            AppendLog("首次使用请点击「准备数据」。");
+            IsDataReady = false;
+            if (showErrorDialog)
+                ShowError(ex.Message);
+            else
+            {
+                AppendLog($"自动加载失败：{ex.Message}");
+                AppendLog("首次使用请点击「准备数据」。");
+            }
         }
     }
 

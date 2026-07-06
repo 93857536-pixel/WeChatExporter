@@ -92,12 +92,14 @@ public sealed class WxCliService
     public async Task<int> ExportAsync(
         ContactItem contact,
         string outputDir,
-        Action<string> log,
+        bool includeMedia = false,
+        Action<string>? log = null,
         CancellationToken cancellationToken = default)
     {
+        log ??= _ => { };
         Directory.CreateDirectory(outputDir);
         var query = string.IsNullOrWhiteSpace(contact.DisplayName) ? contact.Id : contact.DisplayName;
-        log($"导出：{contact.DisplayName}");
+        log($"导出：{contact.DisplayName}{(includeMedia ? "（含媒体）" : "")}");
 
         var txtPath = Path.Combine(outputDir, "chat.txt");
         var jsonPath = Path.Combine(outputDir, "chat.json");
@@ -116,6 +118,24 @@ public sealed class WxCliService
             "-o", jsonPath,
             "--limit", "999999"
         ], 600, log, cancellationToken);
+
+        if (includeMedia)
+        {
+            var mdPath = Path.Combine(outputDir, "chat.md");
+            try
+            {
+                await RunAsync([
+                    "export", query,
+                    "--format", "markdown",
+                    "-o", mdPath,
+                    "--limit", "999999"
+                ], 900, log, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                log($"媒体导出提示：Markdown/附件导出未完成（{ex.Message}）");
+            }
+        }
 
         var count = await WriteCsvFromJsonAsync(jsonPath, csvPath);
         if (count == 0 && File.Exists(txtPath))

@@ -16,7 +16,7 @@
 | 项目 | 要求 |
 |------|------|
 | 系统 | Windows 10 / 11（64 位） |
-| 运行时 | [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) |
+| 运行时 | 无需安装（Release 为自包含包；源码构建加 `-SelfContained`） |
 | 微信 | PC 版 4.x（已登录并同步过聊天记录） |
 | 权限 | 首次「准备数据」建议 **以管理员身份运行**（读取微信进程内存） |
 

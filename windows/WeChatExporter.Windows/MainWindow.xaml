@@ -70,6 +70,21 @@
 
         <ScrollViewer Grid.Column="1" Padding="20" VerticalScrollBarVisibility="Auto">
             <StackPanel>
+                <Border Background="#F5F5F5" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="{Binding ReadinessHint}" TextWrapping="Wrap" Foreground="#444"/>
+                        <Button Content="以管理员身份重新启动" Margin="0,10,0,0" Padding="10,6"
+                                HorizontalAlignment="Left"
+                                Visibility="{Binding IsRunningAsAdmin, Converter={StaticResource AdminVis}}"
+                                Click="RestartAdmin_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <GroupBox Header="导出设置" Margin="0,0,0,16" Padding="12">
+                    <CheckBox Content="同时导出图片等媒体文件（额外生成 chat.md，体积更大）"
+                              IsChecked="{Binding IncludeMedia}"/>
+                </GroupBox>
+
                 <GroupBox Header="导出目录" Margin="0,0,0,16" Padding="12">
                     <StackPanel>
                         <TextBox Text="{Binding ExportPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"/>

@@ -110,6 +110,18 @@ struct ContentView: View {
 
     private var detailPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
+            readinessBanner
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("导出设置", systemImage: "slider.horizontal.3")
+                        .font(.headline)
+                    Toggle("同时导出图片等媒体文件（体积更大，耗时更长）", isOn: $model.includeMedia)
+                        .toggleStyle(.switch)
+                }
+                .padding(4)
+            }
+
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("导出目录", systemImage: "folder.fill")
@@ -165,6 +177,20 @@ struct ContentView: View {
         .padding(20)
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle("详情")
+    }
+
+    private var readinessBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: model.isDataReady ? "checkmark.circle.fill" : "info.circle.fill")
+                .foregroundStyle(model.isDataReady ? AppTheme.accent : .orange)
+                .font(.title3)
+            Text(model.readinessHint)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.subtleText)
+            Spacer()
+        }
+        .padding(12)
+        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

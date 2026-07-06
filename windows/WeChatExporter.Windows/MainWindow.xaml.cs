@@ -46,6 +46,9 @@ public partial class MainWindow : Window
 
     private void OpenFolder_Click(object sender, RoutedEventArgs e)
         => _viewModel.OpenExportFolder();
+
+    private void RestartAdmin_Click(object sender, RoutedEventArgs e)
+        => _viewModel.RestartAsAdministrator();
 }
 
 public sealed class InverseBooleanConverter : IValueConverter
@@ -55,4 +58,14 @@ public sealed class InverseBooleanConverter : IValueConverter
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => value is bool b ? !b : false;
+}
+
+/// <summary>管理员已运行时隐藏「以管理员重启」按钮。</summary>
+public sealed class AdminRestartVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is bool isAdmin && !isAdmin ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
 }
