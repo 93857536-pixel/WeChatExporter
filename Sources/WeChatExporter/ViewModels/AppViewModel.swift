@@ -98,8 +98,12 @@ final class AppViewModel: ObservableObject {
     private func bootstrap() async {
         switch backend {
         case .wxCli(let wxCli):
-            appendLog("正在自动加载会话列表…")
-            await loadContactsSilently(using: wxCli)
+            if await wxCli.isPreparedForQuery() {
+                appendLog("正在自动加载会话列表…")
+                await loadContactsSilently(using: wxCli)
+            } else {
+                appendLog("首次使用请点击「准备数据」。")
+            }
         case .native(let paths):
             if paths.isDecryptedHealthy {
                 appendLog("检测到已解密数据，正在加载联系人…")
@@ -170,7 +174,12 @@ final class AppViewModel: ObservableObject {
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
         } catch {
             isDataReady = false
-            appendLog("自动加载失败：\(error.localizedDescription)")
+            let message = error.localizedDescription
+            if message.contains("超时") {
+                appendLog("加载超时：请先点击「准备数据」完成解密，或稍后重试。")
+            } else {
+                appendLog("自动加载失败：\(message)")
+            }
             appendLog("首次使用请点击「准备数据」。")
         }
     }
