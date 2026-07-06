@@ -56,37 +56,100 @@ public sealed class WxCliService
         return normalized.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase);
     }
 
-    public async Task PrepareDataAsync(Action<string> log, CancellationToken cancellationToken = default)
+    public async Task<bool> IsPreparedForQueryAsync(CancellationToken cancellationToken = default)
     {
+        if (!File.Exists(GetConfigPath()))
+            return false;
+
+        try
+        {
+            var status = await RunAsync(["daemon", "status"], 30, _ => { }, cancellationToken);
+            return status.Contains("ready", StringComparison.OrdinalIgnoreCase)
+                   || status.Contains("running", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task PrepareDataAsync(
+        Action<string> log,
+        Action<LoadProgressUpdate>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var tracker = new LoadProgressTracker();
+        tracker.Reset();
+        progress?.Invoke(tracker.Estimated("正在检查 wx-cli 环境…"));
         log("检查 wx-cli 环境…");
+
         var status = await RunAsync(["daemon", "status"], 30, log, cancellationToken);
         var needsInit = !status.Contains("ready", StringComparison.OrdinalIgnoreCase)
                         && !status.Contains("running", StringComparison.OrdinalIgnoreCase);
 
-        if (needsInit || !File.Exists(GetConfigPath()))
-        {
-            log("正在初始化（扫描密钥并解密数据库，约 1-3 分钟）…");
-            log("提示：若失败，请以管理员身份重新打开本程序。");
-            await RunAsync(["init", "--force"], 300, log, cancellationToken);
-        }
-        else
-        {
-            log("使用已保存的密钥与缓存");
-            await RunAsync(["init"], 180, log, cancellationToken);
-        }
+        using var tickCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _ = RunProgressTicker(tickCts.Token, tracker, progress, "正在初始化数据…");
 
-        log("数据准备完成");
+        try
+        {
+            if (needsInit || !File.Exists(GetConfigPath()))
+            {
+                progress?.Invoke(tracker.Warmup("正在初始化（扫描密钥并解密数据库）…"));
+                log("正在初始化（扫描密钥并解密数据库，约 1-3 分钟）…");
+                log("提示：若失败，请以管理员身份重新打开本程序。");
+                await RunAsync(["init", "--force"], null, log, cancellationToken);
+            }
+            else
+            {
+                log("使用已保存的密钥与缓存");
+                progress?.Invoke(tracker.Warmup("正在同步本地缓存…"));
+                await RunAsync(["init"], null, log, cancellationToken);
+            }
+
+            progress?.Invoke(tracker.Complete("数据准备完成"));
+            log("数据准备完成");
+        }
+        finally
+        {
+            tickCts.Cancel();
+        }
     }
 
     public async Task<IReadOnlyList<ContactItem>> LoadSessionsAsync(
         Action<string> log,
+        Action<LoadProgressUpdate>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        log("正在加载会话列表…");
-        var output = await RunAsync(["sessions", "--json", "--limit", "10000"], 120, log, cancellationToken);
-        var items = ParseSessions(output);
-        log($"已加载 {items.Count} 个会话");
-        return items;
+        var tracker = new LoadProgressTracker();
+        tracker.Reset();
+        progress?.Invoke(tracker.Estimated("正在连接 wx-cli…"));
+        log("正在加载会话列表（数据量大时请耐心等待）…");
+
+        using var tickCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _ = RunProgressTicker(tickCts.Token, tracker, progress, "正在读取会话数据…");
+
+        try
+        {
+            // Windows wx-cli sessions 仅支持 limit，无 offset；使用超大 limit 且无总超时
+            var output = await RunAsync(
+                ["sessions", "--json", "-n", "999999"],
+                null,
+                log,
+                cancellationToken);
+
+            tickCts.Cancel();
+
+            var items = ParseSessions(output);
+            var count = items.Count;
+            progress?.Invoke(tracker.Actual(count, count, $"已加载 {count} 个会话"));
+            progress?.Invoke(tracker.Complete($"已加载 {count} 个会话"));
+            log($"已加载 {count} 个会话");
+            return items;
+        }
+        finally
+        {
+            tickCts.Cancel();
+        }
     }
 
     public async Task<int> ExportAsync(
@@ -110,14 +173,14 @@ public sealed class WxCliService
             "--format", "txt",
             "-o", txtPath,
             "--limit", "999999"
-        ], 600, log, cancellationToken);
+        ], null, log, cancellationToken);
 
         await RunAsync([
             "export", query,
             "--format", "json",
             "-o", jsonPath,
             "--limit", "999999"
-        ], 600, log, cancellationToken);
+        ], null, log, cancellationToken);
 
         if (includeMedia)
         {
@@ -129,7 +192,7 @@ public sealed class WxCliService
                     "--format", "markdown",
                     "-o", mdPath,
                     "--limit", "999999"
-                ], 900, log, cancellationToken);
+                ], null, log, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -144,6 +207,26 @@ public sealed class WxCliService
         return count;
     }
 
+    private static async Task RunProgressTicker(
+        CancellationToken cancellationToken,
+        LoadProgressTracker tracker,
+        Action<LoadProgressUpdate>? progress,
+        string message)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                progress?.Invoke(tracker.Estimated(message));
+                await Task.Delay(500, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // expected
+        }
+    }
+
     private static string GetConfigPath()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -152,7 +235,7 @@ public sealed class WxCliService
 
     private async Task<string> RunAsync(
         IReadOnlyList<string> args,
-        int timeoutSeconds,
+        int? timeoutSeconds,
         Action<string> log,
         CancellationToken cancellationToken)
     {
@@ -194,16 +277,20 @@ public sealed class WxCliService
         process.BeginErrorReadLine();
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        if (timeoutSeconds is int seconds)
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(seconds));
 
         try
         {
             await process.WaitForExitAsync(timeoutCts.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
-            throw new InvalidOperationException($"wx-cli 执行超时（>{timeoutSeconds}s）");
+            throw new InvalidOperationException(
+                timeoutSeconds is int s
+                    ? $"wx-cli 执行超时（>{s} 秒）。若尚未准备数据，请先点击「准备数据」；数据库较大时请耐心等待后重试。"
+                    : "wx-cli 执行已取消。");
         }
 
         var combined = stdout + "\n" + stderr;
@@ -233,6 +320,7 @@ public sealed class WxCliService
             JsonValueKind.Array => root.EnumerateArray(),
             JsonValueKind.Object when root.TryGetProperty("results", out var results) => results.EnumerateArray(),
             JsonValueKind.Object when root.TryGetProperty("items", out var items) => items.EnumerateArray(),
+            JsonValueKind.Object when root.TryGetProperty("sessions", out var sessions) => sessions.EnumerateArray(),
             JsonValueKind.Object => [root],
             _ => []
         };
