@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.3.7] - 2026-07-06
+
+### Fixed
+- macOS 勾选「同时导出媒体」后显示 0 条：wx-cli 实际输出为「联系人_日期.json」，现已正确统计并复制为 chat.json/txt/csv
+- 含媒体导出取消 600 秒超时限制，避免大体积导出被中断
+- Windows 同步改进 JSON 消息计数（支持 wrapper 格式）
+
 ## [2.3.6] - 2026-07-06
 
 ### Added

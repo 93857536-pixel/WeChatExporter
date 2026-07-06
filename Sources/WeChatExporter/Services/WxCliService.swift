@@ -202,21 +202,173 @@ final class WxCliService {
             jsonArgs.append("--no-media")
         }
 
-        _ = try await run(txtArgs, timeout: 600, log: log)
-        _ = try await run(jsonArgs, timeout: 600, log: log)
+        let exportTimeout: TimeInterval? = includeMedia ? nil : 600
+        _ = try await run(txtArgs, timeout: exportTimeout, log: log)
+        _ = try await run(jsonArgs, timeout: exportTimeout, log: log)
 
-        let jsonURL = outputDir.appendingPathComponent("chat.json")
-        if FileManager.default.fileExists(atPath: jsonURL.path),
-           let data = try? Data(contentsOf: jsonURL),
-           let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            return array.count
+        Self.normalizeExportArtifacts(in: outputDir, log: log)
+        let count = Self.countExportedMessages(in: outputDir)
+        if count > 0 {
+            log("共导出 \(count) 条消息")
+        } else {
+            log("警告：导出目录中未找到消息记录，请查看上方 wx-cli 日志")
         }
-        let txtURL = outputDir.appendingPathComponent("chat.txt")
-        if FileManager.default.fileExists(atPath: txtURL.path),
-           let text = try? String(contentsOf: txtURL, encoding: .utf8) {
-            return text.components(separatedBy: "\n").filter { $0.hasPrefix("[") }.count
+        return count
+    }
+
+    /// wx-cli 实际输出为「联系人_日期.json」，统一复制为 chat.json / chat.txt 便于查看。
+    private static func normalizeExportArtifacts(in outputDir: URL, log: ((String) -> Void)? = nil) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: outputDir,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+
+        let chatJSON = outputDir.appendingPathComponent("chat.json")
+        let chatTXT = outputDir.appendingPathComponent("chat.txt")
+        let chatCSV = outputDir.appendingPathComponent("chat.csv")
+
+        if !fm.fileExists(atPath: chatJSON.path),
+           let source = newestFile(withExtension: "json", in: files) {
+            try? fm.copyItem(at: source, to: chatJSON)
+            log?("已写入 \(chatJSON.lastPathComponent)（来自 \(source.lastPathComponent)）")
         }
+
+        if !fm.fileExists(atPath: chatTXT.path),
+           let source = newestFile(withExtension: "txt", in: files) {
+            try? fm.copyItem(at: source, to: chatTXT)
+            log?("已写入 \(chatTXT.lastPathComponent)（来自 \(source.lastPathComponent)）")
+        }
+
+        if !fm.fileExists(atPath: chatCSV.path), fm.fileExists(atPath: chatJSON.path) {
+            if let csv = makeCSV(fromJSONAt: chatJSON), !csv.isEmpty {
+                try? csv.write(to: chatCSV, atomically: true, encoding: .utf8)
+                log?("已生成 \(chatCSV.lastPathComponent)")
+            }
+        }
+    }
+
+    private static func newestFile(withExtension ext: String, in files: [URL]) -> URL? {
+        files
+            .filter { $0.pathExtension.lowercased() == ext }
+            .max { lhs, rhs in
+                let lDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let rDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return lDate < rDate
+            }
+    }
+
+    private static func countExportedMessages(in outputDir: URL) -> Int {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: outputDir,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return 0 }
+
+        if fm.fileExists(atPath: outputDir.appendingPathComponent("chat.json").path),
+           let count = countMessagesInJSON(at: outputDir.appendingPathComponent("chat.json")), count > 0 {
+            return count
+        }
+
+        for json in files.filter({ $0.pathExtension.lowercased() == "json" }) {
+            if let count = countMessagesInJSON(at: json), count > 0 { return count }
+        }
+
+        if fm.fileExists(atPath: outputDir.appendingPathComponent("chat.txt").path),
+           let count = countMessagesInTXT(at: outputDir.appendingPathComponent("chat.txt")), count > 0 {
+            return count
+        }
+
+        for txt in files.filter({ $0.pathExtension.lowercased() == "txt" }) {
+            if let count = countMessagesInTXT(at: txt), count > 0 { return count }
+        }
+
         return 0
+    }
+
+    private static func countMessagesInJSON(at url: URL) -> Int? {
+        guard let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
+
+        if let array = root as? [[String: Any]] { return array.count }
+
+        guard let dict = root as? [String: Any] else { return nil }
+
+        if let conversation = dict["conversation"] as? [String: Any],
+           let count = conversation["message_count"] as? Int, count > 0 {
+            return count
+        }
+
+        if let items = dict["items"] as? [Any] { return items.count }
+        if let results = dict["results"] as? [Any] { return results.count }
+        if let messages = dict["messages"] as? [Any] { return messages.count }
+
+        if let paging = dict["paging"] as? [String: Any],
+           let returned = paging["returned"] as? Int, returned > 0 {
+            return returned
+        }
+
+        return nil
+    }
+
+    private static func countMessagesInTXT(at url: URL) -> Int? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let lines = text.components(separatedBy: .newlines)
+        let bracketLines = lines.filter { $0.hasPrefix("[") }.count
+        if bracketLines > 0 { return bracketLines }
+
+        if let header = lines.first(where: { $0.contains("条") && $0.contains("消息") }) {
+            let digits = header.filter(\.isNumber)
+            if let count = Int(digits), count > 0 { return count }
+        }
+        return nil
+    }
+
+    private static func makeCSV(fromJSONAt url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
+
+        let rows: [[String: Any]]
+        if let array = root as? [[String: Any]] {
+            rows = array
+        } else if let dict = root as? [String: Any] {
+            if let items = dict["items"] as? [[String: Any]] {
+                rows = items
+            } else if let messages = dict["messages"] as? [[String: Any]] {
+                rows = messages
+            } else if let results = dict["results"] as? [[String: Any]] {
+                rows = results
+            } else {
+                return nil
+            }
+        } else {
+            return nil
+        }
+
+        guard !rows.isEmpty else { return nil }
+
+        var csv = "\u{FEFF}时间,发送者,类型,内容\n"
+        for row in rows {
+            let time = stringField(row, keys: ["time", "timestamp_str", "create_time"]) ?? ""
+            let sender = stringField(row, keys: ["sender", "sender_display", "from", "display_name"]) ?? ""
+            let type = stringField(row, keys: ["type", "type_name", "msg_type"]) ?? ""
+            let content = (stringField(row, keys: ["content", "text", "message", "summary"]) ?? "")
+                .replacingOccurrences(of: "\"", with: "\"\"")
+            csv += "\"\(time)\",\"\(sender)\",\"\(type)\",\"\(content)\"\n"
+        }
+        return csv
+    }
+
+    private static func stringField(_ row: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = row[key] as? String, !value.isEmpty { return value }
+            if let value = row[key] as? Int { return String(value) }
+            if let nested = row[key] as? [String: Any] {
+                if let content = nested["content"] as? String, !content.isEmpty { return content }
+                if let text = nested["text"] as? String, !text.isEmpty { return text }
+            }
+        }
+        return nil
     }
 
     private func run(

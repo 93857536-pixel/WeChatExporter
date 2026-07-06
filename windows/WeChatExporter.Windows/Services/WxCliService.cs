@@ -201,8 +201,15 @@ public sealed class WxCliService
         }
 
         var count = await WriteCsvFromJsonAsync(jsonPath, csvPath);
+        if (count == 0)
+            count = CountMessagesInJsonFile(jsonPath);
         if (count == 0 && File.Exists(txtPath))
             count = CountTxtMessages(txtPath);
+
+        if (count > 0)
+            log($"共导出 {count} 条消息");
+        else
+            log("警告：导出目录中未找到消息记录，请查看上方 wx-cli 日志");
 
         return count;
     }
@@ -451,6 +458,7 @@ public sealed class WxCliService
         IEnumerable<JsonElement> messages = root.ValueKind switch
         {
             JsonValueKind.Array => root.EnumerateArray(),
+            JsonValueKind.Object when root.TryGetProperty("items", out var items) => items.EnumerateArray(),
             JsonValueKind.Object when root.TryGetProperty("results", out var results) => results.EnumerateArray(),
             JsonValueKind.Object when root.TryGetProperty("messages", out var messagesProp) => messagesProp.EnumerateArray(),
             _ => []
@@ -478,8 +486,58 @@ public sealed class WxCliService
         return rows.Count;
     }
 
+    private static int CountMessagesInJsonFile(string jsonPath)
+    {
+        if (!File.Exists(jsonPath))
+            return 0;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(jsonPath));
+            var root = doc.RootElement;
+
+            if (root.ValueKind == JsonValueKind.Array)
+                return root.GetArrayLength();
+
+            if (root.TryGetProperty("conversation", out var conversation)
+                && conversation.TryGetProperty("message_count", out var mc)
+                && mc.TryGetInt32(out var messageCount))
+                return messageCount;
+
+            foreach (var key in new[] { "items", "messages", "results" })
+            {
+                if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                    return arr.GetArrayLength();
+            }
+
+            if (root.TryGetProperty("paging", out var paging)
+                && paging.TryGetProperty("returned", out var returned)
+                && returned.TryGetInt32(out var n))
+                return n;
+        }
+        catch
+        {
+            // ignore parse errors
+        }
+
+        return 0;
+    }
+
     private static int CountTxtMessages(string txtPath)
     {
-        return File.ReadLines(txtPath).Count(line => line.StartsWith('['));
+        var lines = File.ReadLines(txtPath).ToList();
+        var bracketCount = lines.Count(line => line.StartsWith('['));
+        if (bracketCount > 0)
+            return bracketCount;
+
+        var header = lines.FirstOrDefault(l => l.Contains('条') && l.Contains("消息"));
+        if (header is not null)
+        {
+            var digits = new string(header.Where(char.IsDigit).ToArray());
+            if (int.TryParse(digits, out var count) && count > 0)
+                return count;
+        }
+
+        return 0;
     }
 }
