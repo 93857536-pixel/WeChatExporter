@@ -1,0 +1,12 @@
+<Application x:Class="WeChatExporter.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:WeChatExporter"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="AccentBrush" Color="#07C35F"/>
+        <SolidColorBrush x:Key="AccentSoftBrush" Color="#1A07C35F"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:InverseBooleanConverter x:Key="NotBool"/>
+    </Application.Resources>
+</Application>

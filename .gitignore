@@ -7,6 +7,12 @@ Package.resolved
 WeChatExporter.app/
 *.dSYM/
 
+# .NET / Windows
+windows/**/bin/
+windows/**/obj/
+windows/publish/
+windows/dist/
+
 # Xcode
 DerivedData/
 *.xcuserstate

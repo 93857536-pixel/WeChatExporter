@@ -1,8 +1,11 @@
 # WeChatExporter
 
-原生 macOS 应用，用于导出微信 Mac 版本地聊天记录。
+原生应用，用于导出微信本地聊天记录。
 
-基于 Swift + SwiftUI 构建，支持选择任意联系人或群聊，导出为 TXT / CSV / JSON 格式。
+- **macOS 版**：Swift + SwiftUI（见项目根目录）
+- **Windows 版**：.NET 8 WPF（见 [`windows/`](windows/) 目录）
+
+基于 Swift + SwiftUI（macOS）构建，支持选择任意联系人或群聊，导出为 TXT / CSV / JSON 格式。
 
 ## 功能
 
@@ -24,7 +27,9 @@
 
 ## 安装
 
-### 方式一：从源码构建
+### macOS
+
+#### 方式一：从源码构建
 
 ```bash
 git clone https://github.com/93857536-pixel/WeChatExporter.git
@@ -37,14 +42,25 @@ cd WeChatExporter
 - `~/Desktop/WeChatExporter.app`
 - `/Applications/WeChatExporter.app`
 
-### 方式二：仅编译不安装
+#### 方式二：仅编译不安装
 
 ```bash
 ./build_app.sh
 # 产物：./WeChatExporter.app
 ```
 
-## 使用
+### Windows
+
+详见 [`windows/README.md`](windows/README.md)。
+
+```powershell
+cd windows
+.\install.ps1
+```
+
+Windows 版内置 `wx.exe`，安装后无需单独安装 CLI。首次使用建议以管理员身份运行。
+
+## 使用（macOS）
 
 1. 打开 **WeChatExporter**
 2. 首次使用点击 **「准备数据」**（会通过 LLDB 重启微信并捕获密钥，随后解密数据库）
@@ -55,6 +71,8 @@ cd WeChatExporter
 若系统提示「无法验证开发者」，请 **右键 → 打开 → 确认打开**。
 
 ## 项目结构
+
+**macOS**
 
 ```
 Sources/WeChatExporter/
@@ -71,6 +89,8 @@ Sources/WeChatExporter/
     ├── ChatExporter.swift       # 导出 TXT/CSV/JSON
     └── SQLiteDatabase.swift
 ```
+
+**Windows** — 见 [`windows/README.md`](windows/README.md)
 
 ## 数据目录
 
