@@ -28,7 +28,7 @@
 
 前往 [GitHub Releases](https://github.com/93857536-pixel/WeChatExporter/releases)，下载 `WeChatExporter-Windows-x64.zip`，解压后运行 `WeChatExporter.exe`。
 
-### 方式二：从源码构建
+### 方式二：一键安装（从源码）
 
 在 PowerShell 中执行：
 
@@ -39,7 +39,7 @@ cd windows
 
 安装完成后，桌面会出现 `WeChatExporter` 文件夹，内含 `WeChatExporter.exe` 与内置 `wx.exe`。
 
-### 方式二：仅构建
+### 方式三：仅构建
 
 ```powershell
 cd windows
