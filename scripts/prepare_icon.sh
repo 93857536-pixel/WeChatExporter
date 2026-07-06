@@ -18,13 +18,19 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 # 确保源图为 1024×1024，macOS 图标需要标准尺寸
-read -r WIDTH HEIGHT < <(sips -g pixelWidth -g pixelHeight "$PNG" 2>/dev/null | awk '/pixel/ {print $2}')
+WIDTH=$(sips -g pixelWidth "$PNG" 2>/dev/null | awk '/pixelWidth/ {print $2; exit}')
+HEIGHT=$(sips -g pixelHeight "$PNG" 2>/dev/null | awk '/pixelHeight/ {print $2; exit}')
+if [[ -z "$WIDTH" || -z "$HEIGHT" ]]; then
+  echo "错误：无法读取 $PNG 的尺寸"
+  exit 1
+fi
 if [[ "$WIDTH" != "$HEIGHT" ]]; then
   side=$(( WIDTH < HEIGHT ? WIDTH : HEIGHT ))
   echo "裁剪源图为 ${side}×${side}（当前 ${WIDTH}×${HEIGHT}）…"
   sips -c "$side" "$side" "$PNG" --out "$PNG" >/dev/null
+  WIDTH=$side
+  HEIGHT=$side
 fi
-read -r WIDTH HEIGHT < <(sips -g pixelWidth -g pixelHeight "$PNG" 2>/dev/null | awk '/pixel/ {print $2}')
 if [[ "$WIDTH" != "1024" || "$HEIGHT" != "1024" ]]; then
   echo "调整源图尺寸为 1024×1024（当前 ${WIDTH}×${HEIGHT}）…"
   sips -z 1024 1024 "$PNG" --out "$PNG" >/dev/null
