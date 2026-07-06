@@ -21,6 +21,9 @@ jobs:
         env:
           WX_CLI_VERSION: v0.7.2
 
+      - name: Create DMG installer
+        run: bash scripts/create_dmg.sh WeChatExporter-macOS-arm64.dmg
+
       - name: Create zip
         run: ditto -c -k --sequesterRsrc --keepParent WeChatExporter.app WeChatExporter-macOS-arm64.zip
 
@@ -28,7 +31,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: WeChatExporter-macOS-arm64.zip
+          path: |
+            WeChatExporter-macOS-arm64.dmg
+            WeChatExporter-macOS-arm64.zip
 
   build-windows:
     name: Build Windows (x64)

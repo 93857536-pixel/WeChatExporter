@@ -46,9 +46,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.3.0</string>
+    <string>2.3.1</string>
     <key>CFBundleVersion</key>
-    <string>4</string>
+    <string>5</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSRequiresNativeExecution</key>
@@ -65,3 +65,6 @@ xattr -cr "$APP_DIR" 2>/dev/null || true
 codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || true
 
 echo "完成: $APP_DIR"
+echo ""
+echo "可选：生成 DMG 安装包"
+echo "  bash scripts/create_dmg.sh"
