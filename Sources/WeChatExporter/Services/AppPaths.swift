@@ -59,18 +59,55 @@ struct AppPaths {
         cleanupSidecarFiles(in: decryptedDir)
     }
 
+    private static let criticalDBs = [
+        "session/session.db",
+        "contact/contact.db",
+        "message/message_0.db",
+    ]
+
     var isDecrypted: Bool {
-        let sessionDB = decryptedDir.appendingPathComponent("session/session.db")
-        let contactDB = decryptedDir.appendingPathComponent("contact/contact.db")
-        let messageDB = decryptedDir.appendingPathComponent("message/message_0.db")
-        guard FileManager.default.fileExists(atPath: sessionDB.path),
-              FileManager.default.fileExists(atPath: contactDB.path),
-              FileManager.default.fileExists(atPath: messageDB.path) else {
+        Self.criticalDBs.allSatisfy { rel in
+            FileManager.default.fileExists(atPath: decryptedDir.appendingPathComponent(rel).path)
+        }
+    }
+
+    var isDecryptedHealthy: Bool {
+        guard isDecrypted else { return false }
+        return Self.criticalDBs.allSatisfy { rel in
+            Self.quickCheckOK(decryptedDir.appendingPathComponent(rel))
+        }
+    }
+
+    @discardableResult
+    func syncFromWxCliCache() -> Bool {
+        let cacheRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/wx-cli/\(accountID)/db_storage", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: cacheRoot.path) else { return false }
+        guard Self.criticalDBs.allSatisfy({ Self.quickCheckOK(cacheRoot.appendingPathComponent($0)) }) else {
             return false
         }
-        guard let db = try? SQLiteDatabase.openReadOnly(at: sessionDB) else { return false }
+        for rel in Self.criticalDBs {
+            let src = cacheRoot.appendingPathComponent(rel)
+            let dst = decryptedDir.appendingPathComponent(rel)
+            try? FileManager.default.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: dst)
+            try? FileManager.default.copyItem(at: src, to: dst)
+        }
+        cleanupSidecarFiles(in: decryptedDir)
+        return isDecryptedHealthy
+    }
+
+    private static func quickCheckOK(_ dbURL: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: dbURL.path),
+              let db = try? SQLiteDatabase.openReadOnly(at: dbURL) else { return false }
         defer { sqlite3_close(db) }
-        return SQLiteDatabase.tableExists(db, name: "SessionTable")
+        guard let stmt = try? SQLiteDatabase.prepare(db, sql: "PRAGMA quick_check", context: "quick_check") else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let resultC = sqlite3_column_text(stmt, 0) else { return false }
+        return String(cString: resultC) == "ok"
     }
 
     private func migrateLegacyIfNeeded() throws {

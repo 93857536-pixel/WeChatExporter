@@ -131,7 +131,7 @@ struct ContentView: View {
                     Text("1. 首次使用点击「准备数据」（会重启微信）")
                     Text("2. 在左侧列表中选择一个或多个联系人")
                     Text("3. 点击「导出选中」")
-                    Text("4. 导出文件包含 chat.txt、chat.csv、chat.json")
+                    Text("4. 路径由系统自动检测，无需手动配置")
                         .foregroundStyle(AppTheme.subtleText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
