@@ -3,17 +3,34 @@ import Foundation
 /// 通过 wx-cli 自动检测微信路径、解密并导出，避免硬编码路径。
 final class WxCliService {
     let executable: URL
+    let isBundled: Bool
 
     init?(executable: URL? = nil) {
         if let executable, FileManager.default.isExecutableFile(atPath: executable.path) {
             self.executable = executable
+            self.isBundled = Self.isBundledExecutable(executable)
             return
         }
         guard let found = Self.locateExecutable() else { return nil }
         self.executable = found
+        self.isBundled = Self.isBundledExecutable(found)
+    }
+
+    /// 应用包内随附的 wx-cli（安装即用，无需单独安装 CLI）。
+    static func bundledExecutable() -> URL? {
+        let candidates = [
+            Bundle.main.resourceURL?.appendingPathComponent("wx-cli"),
+            Bundle.main.bundleURL.appendingPathComponent("MacOS/wx-cli"),
+        ]
+        for url in candidates.compactMap({ $0 }) where FileManager.default.isExecutableFile(atPath: url.path) {
+            return url
+        }
+        return nil
     }
 
     static func locateExecutable() -> URL? {
+        if let bundled = bundledExecutable() { return bundled }
+
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates = [
             home.appendingPathComponent(".local/bin/wx-cli"),
@@ -24,6 +41,11 @@ final class WxCliService {
             return url
         }
         return nil
+    }
+
+    private static func isBundledExecutable(_ url: URL) -> Bool {
+        let bundleRoot = Bundle.main.bundleURL.path
+        return url.path.hasPrefix(bundleRoot + "/")
     }
 
     func statusText() async throws -> String {

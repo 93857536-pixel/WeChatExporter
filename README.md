@@ -7,6 +7,7 @@
 ## 功能
 
 - 图形界面：搜索、多选联系人/群聊
+- **内置 wx-cli**：安装即用，无需单独安装命令行工具
 - 自动检测微信数据目录
 - 通过 LLDB 捕获数据库密钥并解密（微信 4.x SQLCipher）
 - 导出聊天记录到本地文件夹
@@ -36,6 +37,8 @@ cd WeChatExporter
 
 - `~/Desktop/WeChatExporter.app`
 - `/Applications/WeChatExporter.app`
+
+应用已内置 `wx-cli`（`Contents/Resources/wx-cli`），**无需**再单独安装命令行工具。
 
 ### 方式二：仅编译不安装
 
@@ -69,7 +72,11 @@ Sources/WeChatExporter/
     ├── DatabaseService.swift
     ├── ContactStore.swift       # 联系人/会话列表
     ├── ChatExporter.swift       # 导出 TXT/CSV/JSON
+    ├── WxCliService.swift       # 内置 wx-cli 调用
     └── SQLiteDatabase.swift
+
+scripts/
+└── bundle_wx_cli.sh             # 构建时下载并打包 wx-cli
 ```
 
 ## 数据目录

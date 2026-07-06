@@ -6,6 +6,7 @@ APP_NAME="WeChatExporter"
 APP_DIR="$ROOT/${APP_NAME}.app"
 BINARY="$ROOT/.build/release/WeChatExporter"
 ICON_SRC="$HOME/WeChatExporter/assets/AppIcon.icns"
+WX_CLI_VERSION="${WX_CLI_VERSION:-v0.7.2}"
 
 echo "编译原生 macOS 应用…"
 cd "$ROOT"
@@ -14,6 +15,10 @@ swift build -c release
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/$APP_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$APP_NAME"
+
+echo "打包内置 wx-cli ${WX_CLI_VERSION}…"
+WX_CLI_VERSION="$WX_CLI_VERSION" bash "$ROOT/scripts/bundle_wx_cli.sh" "$APP_DIR/Contents/Resources"
+chmod +x "$APP_DIR/Contents/Resources/wx-cli"
 
 if [[ -f "$ICON_SRC" ]]; then
   cp "$ICON_SRC" "$APP_DIR/Contents/Resources/AppIcon.icns"

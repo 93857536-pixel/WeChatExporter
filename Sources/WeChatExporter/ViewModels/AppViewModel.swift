@@ -28,7 +28,7 @@ final class AppViewModel: ObservableObject {
 
         if let wxCli = WxCliService() {
             backend = .wxCli(wxCli)
-            appendLog("使用 wx-cli 自动检测微信路径")
+            appendLog(wxCli.isBundled ? "使用内置 wx-cli（即装即用）" : "使用系统 wx-cli")
             Task { await bootstrap() }
             return
         }
