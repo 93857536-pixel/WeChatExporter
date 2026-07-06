@@ -23,6 +23,9 @@ struct ContentView: View {
         } message: {
             Text(model.alertMessage ?? "")
         }
+        .task {
+            await model.startIfNeeded()
+        }
     }
 
     private var sidebar: some View {

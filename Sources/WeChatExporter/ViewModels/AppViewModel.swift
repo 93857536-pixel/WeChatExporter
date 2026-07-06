@@ -21,6 +21,7 @@ final class AppViewModel: ObservableObject {
     @Published var showAlert = false
 
     private let backend: Backend
+    private var didBootstrap = false
 
     init() {
         let defaultExport = FileManager.default.homeDirectoryForCurrentUser
@@ -31,7 +32,6 @@ final class AppViewModel: ObservableObject {
         if let wxCli = WxCliService() {
             backend = .wxCli(wxCli)
             appendLog(wxCli.isBundled ? "使用内置 wx-cli（即装即用）" : "使用系统 wx-cli")
-            Task { await bootstrap() }
             return
         }
 
@@ -40,7 +40,6 @@ final class AppViewModel: ObservableObject {
             backend = .native(paths)
             exportPath = paths.exportDir.path
             appendLog("账号：\(paths.accountID)")
-            Task { await bootstrap() }
         } catch {
             backend = .native(
                 AppPaths(
@@ -81,6 +80,21 @@ final class AppViewModel: ObservableObject {
         if logs.count > 300 { logs.removeFirst(logs.count - 300) }
     }
 
+    /// 供 wx-cli / LLDB 等后台任务回调，始终在主线程更新 UI 状态。
+    private func logHandler() -> (String) -> Void {
+        { [weak self] message in
+            Task { @MainActor in
+                self?.appendLog(message)
+            }
+        }
+    }
+
+    func startIfNeeded() async {
+        guard !didBootstrap else { return }
+        didBootstrap = true
+        await bootstrap()
+    }
+
     private func bootstrap() async {
         switch backend {
         case .wxCli(let wxCli):
@@ -115,7 +129,7 @@ final class AppViewModel: ObservableObject {
             appendLog("开始准备数据…")
             switch backend {
             case .wxCli(let wxCli):
-                try await wxCli.prepareData(log: { self.appendLog($0) })
+                try await wxCli.prepareData(log: logHandler())
                 await refreshContacts(using: wxCli)
             case .native(let paths):
                 try await prepareNativeData(paths: paths)
@@ -140,7 +154,7 @@ final class AppViewModel: ObservableObject {
 
     private func refreshContacts(using wxCli: WxCliService) async {
         do {
-            contacts = try await wxCli.loadSessions(log: { self.appendLog($0) })
+            contacts = try await wxCli.loadSessions(log: logHandler())
             isDataReady = !contacts.isEmpty
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
         } catch {
@@ -151,7 +165,7 @@ final class AppViewModel: ObservableObject {
 
     private func loadContactsSilently(using wxCli: WxCliService) async {
         do {
-            contacts = try await wxCli.loadSessions(log: { self.appendLog($0) })
+            contacts = try await wxCli.loadSessions(log: logHandler())
             isDataReady = !contacts.isEmpty
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
         } catch {
@@ -193,7 +207,7 @@ final class AppViewModel: ObservableObject {
     private func prepareNativeData(paths: AppPaths) async throws {
         var rawKey = DatabaseService.loadSavedRawKey(from: paths.rawKeyFile, dbRoot: paths.dbRoot)
         if rawKey == nil {
-            rawKey = try await KeyCaptureService.capture(dbRoot: paths.dbRoot) { self.appendLog($0) }
+            rawKey = try await KeyCaptureService.capture(dbRoot: paths.dbRoot, log: logHandler())
             if let rawKey { try DatabaseService.saveRawKey(rawKey, to: paths.rawKeyFile) }
         } else {
             appendLog("使用已保存的密钥")
@@ -203,7 +217,7 @@ final class AppViewModel: ObservableObject {
             dbRoot: paths.dbRoot,
             decryptedDir: paths.decryptedDir,
             rawKey: rawKey,
-            log: { self.appendLog($0) }
+            log: logHandler()
         )
     }
 
@@ -234,7 +248,7 @@ final class AppViewModel: ObservableObject {
                         contact: contact,
                         outputDir: outDir,
                         includeMedia: includeMedia,
-                        log: { self.appendLog($0) }
+                        log: logHandler()
                     )
                     summary.append("• \(contact.displayName)：\(count) 条")
                 }
