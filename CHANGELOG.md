@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.3.6] - 2026-07-06
+
+### Added
+- **Windows**：会话加载与准备数据进度条（先时间预估，完成后显示实际数量）
+- **Windows**：取消会话/初始化超时上限，使用 `-n 999999` 拉取全部会话
+- **Windows**：未准备数据时跳过启动自动加载
+
 ## [2.3.5] - 2026-07-06
 
 ### Added

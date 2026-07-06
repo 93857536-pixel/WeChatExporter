@@ -21,6 +21,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isDataReady;
     private bool _includeMedia;
     private string? _alertMessage;
+    private double? _operationProgress;
+    private string _operationProgressLabel = "";
 
     public MainViewModel(WxCliService wxCli)
     {
@@ -50,6 +52,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get
         {
+            if (!string.IsNullOrWhiteSpace(OperationProgressLabel))
+                return OperationProgressLabel;
             if (IsBusy) return "正在处理，请稍候…";
             if (IsDataReady) return $"已就绪 · 共 {Contacts.Count} 个会话，选择后点击「导出选中」";
             if (!IsRunningAsAdmin)
@@ -57,6 +61,39 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return "首次使用：请点击「准备数据」（需微信 PC 版已登录）";
         }
     }
+
+    public double? OperationProgress
+    {
+        get => _operationProgress;
+        private set
+        {
+            if (_operationProgress == value) return;
+            _operationProgress = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowOperationProgress));
+            OnPropertyChanged(nameof(ShowIndeterminateBusy));
+            OnPropertyChanged(nameof(OperationProgressPercentText));
+        }
+    }
+
+    public string OperationProgressLabel
+    {
+        get => _operationProgressLabel;
+        private set
+        {
+            if (_operationProgressLabel == value) return;
+            _operationProgressLabel = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ReadinessHint));
+        }
+    }
+
+    public bool ShowOperationProgress => OperationProgress.HasValue;
+
+    public bool ShowIndeterminateBusy => IsBusy && !ShowOperationProgress;
+
+    public string OperationProgressPercentText
+        => OperationProgress is double p ? $"{Math.Clamp((int)Math.Round(p * 100), 0, 100)}%" : "";
 
     public string SearchText
     {
@@ -114,6 +151,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanExport));
             OnPropertyChanged(nameof(ReadinessHint));
+            OnPropertyChanged(nameof(ShowIndeterminateBusy));
         }
     }
 
@@ -175,7 +213,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             AppendLog("开始准备数据…");
-            await _wxCli.PrepareDataAsync(AppendLog);
+            await _wxCli.PrepareDataAsync(AppendLog, ReportProgress);
             await LoadContactsInternalAsync(showErrorDialog: true);
             ShowAlert("数据准备完成，现在可以导出聊天记录了。");
         }
@@ -187,6 +225,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             IsBusy = false;
             StatusText = "就绪";
+            ClearProgress();
         }
     }
 
@@ -202,6 +241,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         finally
         {
             IsBusy = false;
+            ClearProgress();
         }
     }
 
@@ -260,6 +300,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task BootstrapAsync()
     {
+        if (!await _wxCli.IsPreparedForQueryAsync())
+        {
+            AppendLog("首次使用请点击「准备数据」。");
+            return;
+        }
+
         AppendLog("正在自动加载会话列表…");
         IsBusy = true;
         try
@@ -269,6 +315,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         finally
         {
             IsBusy = false;
+            ClearProgress();
         }
     }
 
@@ -276,7 +323,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         try
         {
-            var items = await _wxCli.LoadSessionsAsync(AppendLog);
+            var items = await _wxCli.LoadSessionsAsync(AppendLog, ReportProgress);
             Contacts.Clear();
             foreach (var item in items)
                 Contacts.Add(item);
@@ -296,6 +343,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 AppendLog("首次使用请点击「准备数据」。");
             }
         }
+    }
+
+    private void ReportProgress(LoadProgressUpdate update)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            OperationProgress = update.Fraction;
+            OperationProgressLabel = update.Message;
+        });
+    }
+
+    private void ClearProgress()
+    {
+        OperationProgress = null;
+        OperationProgressLabel = "";
     }
 
     private void AppendLog(string message)
