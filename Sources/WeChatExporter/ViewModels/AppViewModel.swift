@@ -19,6 +19,8 @@ final class AppViewModel: ObservableObject {
     @Published var includeMedia = false
     @Published var alertMessage: String?
     @Published var showAlert = false
+    @Published var operationProgress: Double?
+    @Published var operationProgressLabel = ""
 
     private let backend: Backend
     private var didBootstrap = false
@@ -57,6 +59,9 @@ final class AppViewModel: ObservableObject {
     }
 
     var readinessHint: String {
+        if let label = operationProgressLabel.nonEmpty {
+            return label
+        }
         if isBusy { return "正在处理，请稍候…" }
         if isDataReady { return "已就绪 · 共 \(contacts.count) 个会话，选择后点击「导出选中」" }
         return "首次使用：请先点击「准备数据」（需微信已登录，macOS 需关闭 SIP）"
@@ -87,6 +92,20 @@ final class AppViewModel: ObservableObject {
                 self?.appendLog(message)
             }
         }
+    }
+
+    private func progressHandler() -> @Sendable (LoadProgressUpdate) -> Void {
+        { [weak self] update in
+            Task { @MainActor in
+                self?.operationProgress = update.fraction
+                self?.operationProgressLabel = update.message
+            }
+        }
+    }
+
+    private func clearProgress() {
+        operationProgress = nil
+        operationProgressLabel = ""
     }
 
     func startIfNeeded() async {
@@ -127,14 +146,15 @@ final class AppViewModel: ObservableObject {
         defer {
             isBusy = false
             statusText = "就绪"
+            clearProgress()
         }
 
         do {
             appendLog("开始准备数据…")
             switch backend {
             case .wxCli(let wxCli):
-                try await wxCli.prepareData(log: logHandler())
-                await refreshContacts(using: wxCli)
+                try await wxCli.prepareData(log: logHandler(), progress: progressHandler())
+                await refreshContacts(using: wxCli, showProgress: true)
             case .native(let paths):
                 try await prepareNativeData(paths: paths)
                 await refreshContactsNative(paths: paths)
@@ -150,15 +170,25 @@ final class AppViewModel: ObservableObject {
     func refreshContacts() async {
         switch backend {
         case .wxCli(let wxCli):
-            await refreshContacts(using: wxCli)
+            await refreshContacts(using: wxCli, showProgress: true)
         case .native(let paths):
             await refreshContactsNative(paths: paths)
         }
     }
 
-    private func refreshContacts(using wxCli: WxCliService) async {
+    private func refreshContacts(using wxCli: WxCliService, showProgress: Bool) async {
+        if showProgress {
+            isBusy = true
+            defer {
+                isBusy = false
+                clearProgress()
+            }
+        }
         do {
-            contacts = try await wxCli.loadSessions(log: logHandler())
+            contacts = try await wxCli.loadSessions(
+                log: logHandler(),
+                progress: progressHandler()
+            )
             isDataReady = !contacts.isEmpty
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
         } catch {
@@ -169,11 +199,16 @@ final class AppViewModel: ObservableObject {
 
     private func loadContactsSilently(using wxCli: WxCliService) async {
         do {
-            contacts = try await wxCli.loadSessions(log: logHandler())
+            contacts = try await wxCli.loadSessions(
+                log: logHandler(),
+                progress: progressHandler()
+            )
             isDataReady = !contacts.isEmpty
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
+            clearProgress()
         } catch {
             isDataReady = false
+            clearProgress()
             let message = error.localizedDescription
             if message.contains("超时") {
                 appendLog("加载超时：请先点击「准备数据」完成解密，或稍后重试。")
@@ -311,5 +346,9 @@ final class AppViewModel: ObservableObject {
 private extension String {
     var expandingTildeInPath: String {
         (self as NSString).expandingTildeInPath
+    }
+
+    var nonEmpty: String? {
+        isEmpty ? nil : self
     }
 }
