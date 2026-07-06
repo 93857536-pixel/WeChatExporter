@@ -1,15 +1,21 @@
 # WeChatExporter
 
-原生应用，用于导出微信本地聊天记录。
+[![Release](https://img.shields.io/github/v/release/93857536-pixel/WeChatExporter?label=release)](https://github.com/93857536-pixel/WeChatExporter/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](https://github.com/93857536-pixel/WeChatExporter)
 
-- **macOS 版**：Swift + SwiftUI（见项目根目录）
-- **Windows 版**：.NET 8 WPF（见 [`windows/`](windows/) 目录）
+原生应用，用于在本地导出**自己的**微信聊天记录。完全离线运行，不上传数据或密钥。
 
-支持选择任意联系人或群聊，导出为 TXT / CSV / JSON 格式。
+**English README:** [README.en.md](README.en.md)
+
+- **macOS 版**：Swift + SwiftUI，提供 DMG 安装包
+- **Windows 版**：.NET 8 WPF，自包含 zip（无需安装 .NET）
+
+![主界面预览](docs/screenshots/main-ui.png)
 
 ## 下载（推荐）
 
-前往 [GitHub Releases](https://github.com/93857536-pixel/WeChatExporter/releases) 下载预编译版本：
+前往 **[GitHub Releases](https://github.com/93857536-pixel/WeChatExporter/releases/latest)** 下载最新版：
 
 | 平台 | 文件 | 说明 |
 |------|------|------|
@@ -17,15 +23,17 @@
 | macOS (备用) | `WeChatExporter-macOS-arm64.zip` | 解压后打开 `.app` |
 | Windows (64 位) | `WeChatExporter-Windows-x64.zip` | 解压后运行 `WeChatExporter.exe`，**自包含，无需安装 .NET** |
 
+> 版本更新记录见 [CHANGELOG.md](CHANGELOG.md)
+
 ## 功能
 
 - 图形界面：搜索、多选联系人/群聊
 - **内置 wx-cli**：安装即用，无需单独安装命令行工具
 - **就绪状态提示**：界面顶部显示当前进度（是否已完成「准备数据」）
-- **可选媒体导出**：勾选后同时导出图片等媒体（macOS / Windows，依赖 wx-cli 能力）
+- **可选媒体导出**：勾选后同时导出图片等媒体（依赖 wx-cli 能力，尽力而为）
 - 自动检测微信数据目录
 - 通过 LLDB / 内存扫描捕获密钥并解密（微信 4.x SQLCipher）
-- 导出聊天记录到本地文件夹
+- 导出 TXT / CSV / JSON
 
 ## 系统要求
 
@@ -34,7 +42,7 @@
 | 项目 | 要求 |
 |------|------|
 | 系统 | macOS 13 (Ventura) 或更高 |
-| 芯片 | Apple Silicon (arm64) |
+| 芯片 | Apple Silicon (arm64)，暂不支持 Intel Mac |
 | 微信 | Mac 版 4.x（已登录并同步过聊天记录） |
 | 密钥捕获 | 需关闭 SIP（System Integrity Protection） |
 
@@ -47,33 +55,46 @@
 | 微信 | PC 版 4.x（已登录并同步过聊天记录） |
 | 权限 | 首次「准备数据」建议以管理员身份运行 |
 
+### 兼容说明
+
+| 组件 | macOS | Windows |
+|------|-------|---------|
+| 内置 CLI | [pandorafuture/wx-cli](https://github.com/pandorafuture/wx-cli) v0.7.2 | [jackwener/wx-cli](https://github.com/jackwener/wx-cli) v0.3.0 |
+| 微信版本 | 4.x（4.1.7+ 更稳定） | 4.x（4.1.7+ 更稳定） |
+
 > **隐私说明**：本工具仅在本地运行，不会上传任何聊天数据或密钥。
 
-## 安装
+## 快速开始
 
 ### macOS
 
-#### 方式一：从源码构建
+1. 下载并打开 **`WeChatExporter-macOS-arm64.dmg`**
+2. 将 **WeChatExporter** 拖到 **应用程序** 文件夹
+3. 打开应用（若提示无法验证开发者，请 **右键 → 打开**）
+4. 点击 **「准备数据」** → 选择联系人 → **「导出选中」**
+
+### Windows
+
+1. 解压 **`WeChatExporter-Windows-x64.zip`**
+2. **右键以管理员身份运行** `WeChatExporter.exe`（首次推荐）
+3. 点击 **「准备数据」** → 选择联系人 → **「导出选中」**
+
+默认导出目录：
+- macOS：`~/Downloads/微信聊天记录导出/`
+- Windows：`%USERPROFILE%\Downloads\微信聊天记录导出\`
+
+## 从源码构建
+
+### macOS
 
 ```bash
 git clone https://github.com/93857536-pixel/WeChatExporter.git
 cd WeChatExporter
-./install.sh
-```
-
-安装完成后，应用会出现在：
-
-- `~/Desktop/WeChatExporter.app`
-- `/Applications/WeChatExporter.app`
-
-应用已内置 `wx-cli`（`Contents/Resources/wx-cli`），**无需**再单独安装命令行工具。
-
-#### 方式二：仅编译不安装
-
-```bash
-./build_app.sh
-bash scripts/create_dmg.sh   # 可选：生成 DMG 安装包
-# 产物：./WeChatExporter.app 或 ./WeChatExporter-macOS-arm64.dmg
+./install.sh                  # 构建并安装到桌面与 /Applications
+# 或
+./build_app.sh                # 仅生成 .app
+bash scripts/create_dmg.sh    # 生成 DMG
+CREATE_DMG=1 ./install.sh     # 安装同时生成 DMG
 ```
 
 ### Windows
@@ -82,51 +103,22 @@ bash scripts/create_dmg.sh   # 可选：生成 DMG 安装包
 
 ```powershell
 cd windows
-.\install.ps1
+./install.ps1    # 安装到桌面
+./build.ps1      # 仅构建到 dist/
 ```
-
-Windows 版内置 `wx.exe`，安装后无需单独安装 CLI。首次使用建议以管理员身份运行。
-
-## 使用（macOS）
-
-1. 打开 **WeChatExporter-macOS-arm64.dmg**
-2. 将 **WeChatExporter** 拖到 **应用程序** 文件夹
-3. 从启动台或「应用程序」打开 **WeChatExporter**（若提示无法验证开发者，请 **右键 → 打开**）
-4. 首次使用点击 **「准备数据」**（会通过 LLDB 重启微信并捕获密钥，随后解密数据库）
-5. 在左侧列表搜索并选择联系人或群聊（⌘ 可多选）
-6. 点击 **「导出选中」**
-7. 默认导出目录：`~/Downloads/微信聊天记录导出/`
-
-## 使用（Windows）
-
-1. 解压 Release 包，**右键以管理员身份运行** `WeChatExporter.exe`（首次推荐）
-2. 点击 **「准备数据」**
-3. 选择联系人（Ctrl 多选）→ **「导出选中」**
-4. 默认导出目录：`Downloads\微信聊天记录导出\`
 
 ## 项目结构
 
 **macOS**
 
 ```
-Sources/WeChatExporter/
-├── WeChatExporterApp.swift      # 应用入口
-├── Views/ContentView.swift      # SwiftUI 界面
-├── ViewModels/AppViewModel.swift
-├── Models/ContactItem.swift
-└── Services/
-    ├── AppPaths.swift           # 路径检测与迁移
-    ├── CryptoService.swift      # SQLCipher 解密
-    ├── KeyCaptureService.swift  # LLDB 密钥捕获
-    ├── DatabaseService.swift
-    ├── ContactStore.swift       # 联系人/会话列表
-    ├── ChatExporter.swift       # 导出 TXT/CSV/JSON
-    ├── WxCliService.swift       # 内置 wx-cli 调用
-    └── SQLiteDatabase.swift
-
+Sources/WeChatExporter/     # SwiftUI 应用
 scripts/
-├── bundle_wx_cli.sh             # 构建时下载并打包 wx-cli
-└── create_dmg.sh                # 生成 macOS DMG 安装包
+├── bundle_wx_cli.sh        # 打包内置 wx-cli
+├── create_dmg.sh           # 生成 DMG
+└── prepare_icon.sh         # 生成 AppIcon.icns
+assets/AppIcon.png          # 应用图标源文件
+docs/screenshots/           # README 截图
 ```
 
 **Windows** — 见 [`windows/README.md`](windows/README.md)
@@ -158,9 +150,17 @@ xattr -cr /Applications/WeChatExporter.app
 codesign --force --deep --sign - /Applications/WeChatExporter.app
 ```
 
+**如何反馈问题**
+
+请使用 [Bug Report 模板](https://github.com/93857536-pixel/WeChatExporter/issues/new?template=bug_report.yml) 提交 Issue。
+
+## 参与贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## 免责声明
 
-- 本工具仅供个人备份自己的聊天记录，请勿用于非法用途
+- 本工具仅供个人备份**自己的**聊天记录，请勿用于非法用途
 - 微信数据库格式可能随版本更新而变化，不保证兼容所有版本
 - 使用本工具的风险由使用者自行承担
 

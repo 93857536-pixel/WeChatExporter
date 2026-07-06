@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare app icon
+        run: bash scripts/prepare_icon.sh
+
       - name: Build app with bundled wx-cli
         run: ./build_app.sh
         env:

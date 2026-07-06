@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 查看 Releases
+    url: https://github.com/93857536-pixel/WeChatExporter/releases/latest
+    about: 下载最新 macOS DMG 或 Windows zip
+  - name: 常见问题
+    url: https://github.com/93857536-pixel/WeChatExporter#常见问题
+    about: README 中的 FAQ

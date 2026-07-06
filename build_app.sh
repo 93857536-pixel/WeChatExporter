@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="WeChatExporter"
 APP_DIR="$ROOT/${APP_NAME}.app"
 BINARY="$ROOT/.build/release/WeChatExporter"
-ICON_SRC="$HOME/WeChatExporter/assets/AppIcon.icns"
+ICON_SRC="$ROOT/assets/AppIcon.icns"
+ICON_PNG="$ROOT/assets/AppIcon.png"
 WX_CLI_VERSION="${WX_CLI_VERSION:-v0.7.2}"
 
 echo "编译原生 macOS 应用…"
@@ -20,8 +21,11 @@ echo "打包内置 wx-cli ${WX_CLI_VERSION}…"
 WX_CLI_VERSION="$WX_CLI_VERSION" bash "$ROOT/scripts/bundle_wx_cli.sh" "$APP_DIR/Contents/Resources"
 chmod +x "$APP_DIR/Contents/Resources/wx-cli"
 
+bash "$ROOT/scripts/prepare_icon.sh" 2>/dev/null || true
 if [[ -f "$ICON_SRC" ]]; then
   cp "$ICON_SRC" "$APP_DIR/Contents/Resources/AppIcon.icns"
+elif [[ -f "$ICON_PNG" ]]; then
+  cp "$ICON_PNG" "$APP_DIR/Contents/Resources/AppIcon.png"
 fi
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
@@ -46,9 +50,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.3.1</string>
+    <string>2.3.2</string>
     <key>CFBundleVersion</key>
-    <string>5</string>
+    <string>6</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSRequiresNativeExecution</key>

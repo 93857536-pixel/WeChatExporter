@@ -1,0 +1,30 @@
+name: Feature Request
+description: 提出新功能或改进建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题？
+      placeholder: "例如：希望导出时自动按月份分文件夹"
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 你期望的方案
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 涉及平台
+      options:
+        - macOS
+        - Windows
+        - 两者
+    validations:
+      required: true

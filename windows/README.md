@@ -1,6 +1,10 @@
 # WeChatExporter — Windows 版
 
+[![Release](https://img.shields.io/github/v/release/93857536-pixel/WeChatExporter?label=release)](https://github.com/93857536-pixel/WeChatExporter/releases/latest)
+
 原生 Windows 桌面应用，用于导出 **微信 PC 版 4.x** 本地聊天记录。
+
+**主项目 README：** [../README.md](../README.md) · **English:** [../README.en.md](../README.en.md)
 
 基于 **.NET 8 WPF** 构建，内置 [jackwener/wx-cli](https://github.com/jackwener/wx-cli)，安装即用，无需单独安装 CLI。
 

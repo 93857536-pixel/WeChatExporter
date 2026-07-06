@@ -1,0 +1,84 @@
+name: Bug Report
+description: 报告问题或错误
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先查看 [README 常见问题](https://github.com/93857536-pixel/WeChatExporter#常见问题) 和 [CHANGELOG](https://github.com/93857536-pixel/WeChatExporter/blob/main/CHANGELOG.md)。
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - macOS
+        - Windows
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: 系统版本
+      placeholder: "例如 macOS 14.5 / Windows 11 23H2"
+    validations:
+      required: true
+
+  - type: input
+    id: wechat-version
+    attributes:
+      label: 微信版本
+      placeholder: "例如 4.0.x"
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: WeChatExporter 版本
+      placeholder: "例如 v2.3.1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: "1. 打开应用\n2. 点击准备数据\n3. …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 错误信息
+      description: 请粘贴应用内「日志」面板内容或终端输出
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 自检清单
+      options:
+        - label: macOS 已关闭 SIP / Windows 已尝试管理员运行
+          required: false
+        - label: 微信已登录且本地有聊天记录
+          required: false
+        - label: 我已确认仅备份本人数据
+          required: true
