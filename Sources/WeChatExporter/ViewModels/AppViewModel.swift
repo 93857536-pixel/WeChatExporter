@@ -96,9 +96,11 @@ final class AppViewModel: ObservableObject {
 
     private func progressHandler() -> @Sendable (LoadProgressUpdate) -> Void {
         { [weak self] update in
-            Task { @MainActor in
-                self?.operationProgress = update.fraction
-                self?.operationProgressLabel = update.message
+            let fraction = update.fraction
+            let message = update.message
+            DispatchQueue.main.async {
+                self?.operationProgress = fraction
+                self?.operationProgressLabel = message
             }
         }
     }
@@ -177,13 +179,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func refreshContacts(using wxCli: WxCliService, showProgress: Bool) async {
-        if showProgress {
-            isBusy = true
-            defer {
-                isBusy = false
-                clearProgress()
-            }
-        }
+        if showProgress { isBusy = true }
         do {
             contacts = try await wxCli.loadSessions(
                 log: logHandler(),
@@ -194,6 +190,10 @@ final class AppViewModel: ObservableObject {
         } catch {
             isDataReady = false
             presentError(error.localizedDescription)
+        }
+        if showProgress {
+            isBusy = false
+            clearProgress()
         }
     }
 

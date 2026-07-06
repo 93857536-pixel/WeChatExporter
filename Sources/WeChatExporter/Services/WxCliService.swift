@@ -124,22 +124,22 @@ final class WxCliService {
         var allItems: [ContactItem] = []
         var offset = 0
         let pageSize = 500
-        var knownTotal: Int?
+        let state = SessionLoadState()
         var pageIndex = 0
 
         let tickTask = Task {
-            while !Task.isCancelled {
+            while !Task.isCancelled && !state.hasTotal {
                 try await Task.sleep(nanoseconds: 500_000_000)
-                if knownTotal == nil {
-                    progress(tracker.estimated(message: "正在读取会话数据（第 \(max(pageIndex, 1)) 批）…"))
-                }
+                let batch = max(state.pageIndex, 1)
+                progress(tracker.estimated(message: "正在读取会话数据（第 \(batch) 批）…"))
             }
         }
         defer { tickTask.cancel() }
 
         while true {
             pageIndex += 1
-            if knownTotal == nil {
+            state.pageIndex = pageIndex
+            if !state.hasTotal {
                 progress(tracker.estimated(message: "正在读取会话数据（第 \(pageIndex) 批）…"))
             }
 
@@ -168,15 +168,15 @@ final class WxCliService {
 
             let paging = response.paging
             let returned = paging?.returned ?? pageItems.count
-            let total = paging?.total ?? knownTotal ?? allItems.count
-            knownTotal = max(total, allItems.count)
+            let total = paging?.total ?? state.knownTotal ?? allItems.count
+            state.knownTotal = max(total, allItems.count)
             tickTask.cancel()
 
             let loaded = offset + returned
             progress(tracker.actual(
                 loaded: loaded,
-                total: knownTotal ?? loaded,
-                message: "已加载 \(allItems.count) / \(knownTotal ?? allItems.count) 个会话"
+                total: state.knownTotal ?? loaded,
+                message: "已加载 \(allItems.count) / \(state.knownTotal ?? allItems.count) 个会话"
             ))
 
             let hasMore = paging?.hasMore ?? (returned >= pageSize)
@@ -262,7 +262,7 @@ final class WxCliService {
                 group.leave()
             }
 
-            func consume(_ handle: FileHandle, isErr: Bool) {
+            @Sendable func consume(_ handle: FileHandle, isErr: Bool) {
                 let chunk = handle.availableData
                 guard !chunk.isEmpty else { return }
                 collector.append(chunk, isErr: isErr)
@@ -417,6 +417,26 @@ private final class OutputCollector {
         lock.lock()
         if isErr { stderr.append(data) } else { stdout.append(data) }
         lock.unlock()
+    }
+}
+
+private final class SessionLoadState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _pageIndex = 0
+    private var _knownTotal: Int?
+
+    var pageIndex: Int {
+        get { lock.withLock { _pageIndex } }
+        set { lock.withLock { _pageIndex = newValue } }
+    }
+
+    var knownTotal: Int? {
+        get { lock.withLock { _knownTotal } }
+        set { lock.withLock { _knownTotal = newValue } }
+    }
+
+    var hasTotal: Bool {
+        lock.withLock { _knownTotal != nil }
     }
 }
 
