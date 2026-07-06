@@ -65,62 +65,129 @@ final class WxCliService {
         return true
     }
 
-    func prepareData(log: @escaping (String) -> Void) async throws {
+    func prepareData(
+        log: @escaping (String) -> Void,
+        progress: @escaping @Sendable (LoadProgressUpdate) -> Void
+    ) async throws {
+        let tracker = LoadProgressTracker()
+        tracker.reset()
+        progress(tracker.estimated(message: "正在检查运行环境…"))
         log("检查运行环境…")
         guard await doctorOK() else {
             throw AppError.decryptFailed("wx-cli 环境检查未通过。请确认 SIP 已关闭且微信已登录。")
         }
 
+        progress(tracker.estimated(message: "正在读取账号状态…"))
         let status = try await run(["status"], timeout: 30, log: log)
         let needsKey = !status.contains("key ✅")
         if needsKey {
+            progress(tracker.estimated(message: "正在捕获解密密钥（会重启微信）…"))
             log("正在捕获解密密钥（会重启微信，约 1-2 分钟）…")
-            _ = try await run(["key", "extract", "--timeout", "120"], timeout: 180, log: log)
+            _ = try await run(["key", "extract", "--timeout", "120"], timeout: nil, log: log, onActivity: { line in
+                if line.contains("Password") || line.contains("PBKDF2") {
+                    progress(tracker.estimated(message: "等待微信登录并捕获密钥…"))
+                }
+            })
         } else {
             log("使用已保存的密钥")
         }
 
+        progress(tracker.estimated(message: "正在解密本地数据库…"))
         log("正在解密本地数据库…")
-        _ = try await run(["decrypt"], timeout: 600, log: log)
+        let decryptTick = Task {
+            while !Task.isCancelled {
+                try await Task.sleep(nanoseconds: 500_000_000)
+                progress(tracker.estimated(message: "正在解密本地数据库…"))
+            }
+        }
+        defer { decryptTick.cancel() }
+        _ = try await run(["decrypt"], timeout: nil, log: log, onActivity: { line in
+            if let count = Self.parseDecryptTotal(from: line) {
+                progress(tracker.decryptWarmup(totalDBs: count, message: "正在解密 \(count) 个数据库…"))
+            } else if line.contains("decrypted") || line.contains("Cache:") {
+                progress(tracker.decryptWarmup(totalDBs: 1, message: "数据库解密进行中…"))
+            }
+        })
+        progress(tracker.complete(message: "数据库解密完成"))
         log("数据库解密完成")
     }
 
-    func loadSessions(log: @escaping (String) -> Void) async throws -> [ContactItem] {
-        log("正在加载会话列表（会话较多时可能需要 1-3 分钟）…")
-        let output = try await run(
-            ["sessions", "--format", "json", "--limit", "10000", "--no-server"],
-            timeout: 300,
-            log: log
-        )
-        let payload = try Self.extractJSON(from: output)
-        let response = try JSONDecoder().decode(WxCliSessionsResponse.self, from: payload)
-        let items = response.items
-            .filter { !$0.username.isEmpty && $0.username != "@placeholder_foldgroup" }
-            .map { session in
-                let username = session.username
-                let display = Self.cleanDisplayName(session.displayName ?? username, username: username)
-                let kind: ContactKind
-                if username.hasSuffix("@chatroom") {
-                    kind = .group
-                } else if username.hasPrefix("gh_") {
-                    kind = .official
-                } else {
-                    kind = .friend
+    func loadSessions(
+        log: @escaping (String) -> Void,
+        progress: @escaping @Sendable (LoadProgressUpdate) -> Void
+    ) async throws -> [ContactItem] {
+        let tracker = LoadProgressTracker()
+        tracker.reset()
+        progress(tracker.estimated(message: "正在连接 wx-cli…"))
+        log("正在加载会话列表（数据量大时将自动分页，请耐心等待）…")
+
+        var allItems: [ContactItem] = []
+        var offset = 0
+        let pageSize = 500
+        var knownTotal: Int?
+        var pageIndex = 0
+
+        let tickTask = Task {
+            while !Task.isCancelled {
+                try await Task.sleep(nanoseconds: 500_000_000)
+                if knownTotal == nil {
+                    progress(tracker.estimated(message: "正在读取会话数据（第 \(max(pageIndex, 1)) 批）…"))
                 }
-                let ts = session.sortTimestamp ?? 0
-                return ContactItem(
-                    id: username,
-                    displayName: display,
-                    nickName: display,
-                    remark: "",
-                    kind: kind,
-                    lastTime: Self.formatTime(ts),
-                    lastTimestamp: ts,
-                    summary: (session.summary ?? "").replacingOccurrences(of: "\n", with: " ")
-                )
             }
-        log("已加载 \(items.count) 个会话")
-        return items.sorted { $0.lastTimestamp > $1.lastTimestamp }
+        }
+        defer { tickTask.cancel() }
+
+        while true {
+            pageIndex += 1
+            if knownTotal == nil {
+                progress(tracker.estimated(message: "正在读取会话数据（第 \(pageIndex) 批）…"))
+            }
+
+            let output = try await run(
+                [
+                    "sessions", "--format", "json",
+                    "--limit", "\(pageSize)",
+                    "--offset", "\(offset)",
+                    "--no-server",
+                ],
+                timeout: nil,
+                log: log,
+                onActivity: { line in
+                    if let count = Self.parseDecryptTotal(from: line) {
+                        progress(tracker.decryptWarmup(
+                            totalDBs: count,
+                            message: "正在解密 \(count) 个数据库…"
+                        ))
+                    }
+                }
+            )
+
+            let response = try Self.decodeSessionsResponse(from: output)
+            let pageItems = Self.mapSessions(response.items)
+            allItems.append(contentsOf: pageItems)
+
+            let paging = response.paging
+            let returned = paging?.returned ?? pageItems.count
+            let total = paging?.total ?? knownTotal ?? allItems.count
+            knownTotal = max(total, allItems.count)
+            tickTask.cancel()
+
+            let loaded = offset + returned
+            progress(tracker.actual(
+                loaded: loaded,
+                total: knownTotal ?? loaded,
+                message: "已加载 \(allItems.count) / \(knownTotal ?? allItems.count) 个会话"
+            ))
+
+            let hasMore = paging?.hasMore ?? (returned >= pageSize)
+            guard hasMore, returned > 0 else { break }
+            offset += returned
+        }
+
+        let sorted = allItems.sorted { $0.lastTimestamp > $1.lastTimestamp }
+        progress(tracker.complete(message: "已加载 \(sorted.count) 个会话"))
+        log("已加载 \(sorted.count) 个会话")
+        return sorted
     }
 
     func export(contact: ContactItem, outputDir: URL, includeMedia: Bool = false, log: @escaping (String) -> Void) async throws -> Int {
@@ -154,8 +221,9 @@ final class WxCliService {
 
     private func run(
         _ args: [String],
-        timeout: TimeInterval = 120,
-        log: ((String) -> Void)? = nil
+        timeout: TimeInterval? = 120,
+        log: ((String) -> Void)? = nil,
+        onActivity: ((String) -> Void)? = nil
     ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let resumeOnMain: (Result<String, Error>) -> Void = { result in
@@ -170,10 +238,11 @@ final class WxCliService {
             }
 
             let collector = OutputCollector()
-            let emitLog: (String) -> Void = { line in
-                guard let log else { return }
+            let emitLine: (String) -> Void = { line in
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
+                onActivity?(trimmed)
+                guard let log else { return }
                 DispatchQueue.main.async { log(trimmed) }
             }
 
@@ -199,7 +268,7 @@ final class WxCliService {
                 collector.append(chunk, isErr: isErr)
                 guard let text = String(data: chunk, encoding: .utf8) else { return }
                 for line in text.components(separatedBy: .newlines) where !line.isEmpty {
-                    emitLog(line)
+                    emitLine(line)
                 }
             }
 
@@ -218,10 +287,17 @@ final class WxCliService {
             }
 
             DispatchQueue.global(qos: .userInitiated).async {
-                let deadline = DispatchTime.now() + timeout
-                if group.wait(timeout: deadline) == .timedOut {
+                let waitResult: DispatchTimeoutResult
+                if let timeout {
+                    waitResult = group.wait(timeout: .now() + timeout)
+                } else {
+                    group.wait()
+                    waitResult = .success
+                }
+
+                if waitResult == .timedOut {
                     process.terminate()
-                    let seconds = Int(timeout)
+                    let seconds = Int(timeout ?? 0)
                     resumeOnMain(.failure(AppError.exportFailed(
                         "wx-cli 执行超时（>\(seconds) 秒）。若尚未准备数据，请先点击「准备数据」；数据库较大时请耐心等待后重试。"
                     )))
@@ -272,6 +348,45 @@ final class WxCliService {
         return data
     }
 
+    private static func decodeSessionsResponse(from output: String) throws -> WxCliSessionsResponse {
+        let payload = try extractJSON(from: output)
+        return try JSONDecoder().decode(WxCliSessionsResponse.self, from: payload)
+    }
+
+    private static func mapSessions(_ sessions: [WxCliSession]) -> [ContactItem] {
+        sessions
+            .filter { !$0.username.isEmpty && $0.username != "@placeholder_foldgroup" }
+            .map { session in
+                let username = session.username
+                let display = cleanDisplayName(session.displayName ?? username, username: username)
+                let kind: ContactKind
+                if username.hasSuffix("@chatroom") {
+                    kind = .group
+                } else if username.hasPrefix("gh_") {
+                    kind = .official
+                } else {
+                    kind = .friend
+                }
+                let ts = session.sortTimestamp ?? 0
+                return ContactItem(
+                    id: username,
+                    displayName: display,
+                    nickName: display,
+                    remark: "",
+                    kind: kind,
+                    lastTime: formatTime(ts),
+                    lastTimestamp: ts,
+                    summary: (session.summary ?? "").replacingOccurrences(of: "\n", with: " ")
+                )
+            }
+    }
+
+    private static func parseDecryptTotal(from line: String) -> Int? {
+        guard line.contains("Decrypting") else { return nil }
+        let digits = line.split(whereSeparator: { !$0.isNumber })
+        return digits.compactMap { Int($0) }.first
+    }
+
     private static func cleanDisplayName(_ raw: String, username: String) -> String {
         if let range = raw.range(of: "（\(username)）") {
             return String(raw[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -307,6 +422,20 @@ private final class OutputCollector {
 
 private struct WxCliSessionsResponse: Decodable {
     let items: [WxCliSession]
+    let paging: WxCliPaging?
+}
+
+private struct WxCliPaging: Decodable {
+    let limit: Int
+    let offset: Int
+    let returned: Int
+    let hasMore: Bool
+    let total: Int
+
+    enum CodingKeys: String, CodingKey {
+        case limit, offset, returned, total
+        case hasMore = "has_more"
+    }
 }
 
 private struct WxCliSession: Decodable {

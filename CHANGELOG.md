@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.3.5] - 2026-07-06
+
+### Added
+- 会话加载进度条：先时间预估，拿到总量后按「已加载 / 总数」实时更新
+- 分页拉取全部会话（每批 500 条），不再受 120 秒超时限制
+
+### Changed
+- 准备数据 / 解密过程同样显示进度条
+- wx-cli 长时间任务取消固定超时，改为无上限等待
+
 ## [2.3.4] - 2026-07-06
 
 ### Fixed

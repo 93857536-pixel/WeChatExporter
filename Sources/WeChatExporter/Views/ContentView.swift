@@ -73,14 +73,33 @@ struct ContentView: View {
                 }
             }
 
-            if model.isBusy {
-                ProgressView()
-                    .controlSize(.small)
+            if model.isBusy || model.operationProgress != nil {
+                operationProgressView
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var operationProgressView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let value = model.operationProgress {
+                ProgressView(value: value) {
+                    Text(model.operationProgressLabel.isEmpty ? "处理中…" : model.operationProgressLabel)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                }
+                .progressViewStyle(.linear)
+                Text("\(Int(value * 100))%")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(AppTheme.subtleText)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
     }
 
     @ToolbarContentBuilder
@@ -183,14 +202,24 @@ struct ContentView: View {
     }
 
     private var readinessBanner: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: model.isDataReady ? "checkmark.circle.fill" : "info.circle.fill")
-                .foregroundStyle(model.isDataReady ? AppTheme.accent : .orange)
-                .font(.title3)
-            Text(model.readinessHint)
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.subtleText)
-            Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: model.isDataReady ? "checkmark.circle.fill" : "info.circle.fill")
+                    .foregroundStyle(model.isDataReady ? AppTheme.accent : .orange)
+                    .font(.title3)
+                Text(model.readinessHint)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.subtleText)
+                Spacer()
+            }
+
+            if let value = model.operationProgress {
+                ProgressView(value: value) {
+                    EmptyView()
+                }
+                .progressViewStyle(.linear)
+                .tint(AppTheme.accent)
+            }
         }
         .padding(12)
         .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
