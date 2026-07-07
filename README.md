@@ -119,7 +119,8 @@ scripts/
 ├── generate_dmg_background.py  # DMG 背景图生成
 └── prepare_icon.sh         # 生成 AppIcon.icns
 assets/AppIcon.png          # 应用图标源文件
-assets/dmg-background.png   # DMG 安装窗口背景（Retina）
+assets/dmg-background.png      # DMG 背景 1x（660×400 @72dpi）
+assets/dmg-background@2x.png   # DMG 背景 2x（1320×800 @144dpi）
 docs/screenshots/           # README 截图
 ```
 
