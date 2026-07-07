@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.3.9] - 2026-07-07
+
+### Fixed
+- macOS DMG 背景图无法铺满窗口：修正 1x/2x 背景 DPI（72/144）并合并为 Retina TIFF，Finder 不再只显示左上角
+
 ## [2.3.8] - 2026-07-07
 
 ### Changed
