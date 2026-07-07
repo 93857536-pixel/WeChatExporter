@@ -25,7 +25,9 @@ jobs:
           WX_CLI_VERSION: v0.7.2
 
       - name: Create DMG installer
-        run: bash scripts/create_dmg.sh WeChatExporter-macOS-arm64.dmg
+        run: |
+          python3 -m pip install --quiet Pillow || true
+          bash scripts/create_dmg.sh WeChatExporter-macOS-arm64.dmg
 
       - name: Create zip
         run: ditto -c -k --sequesterRsrc --keepParent WeChatExporter.app WeChatExporter-macOS-arm64.zip

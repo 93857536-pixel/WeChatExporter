@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.3.8] - 2026-07-07
+
+### Changed
+- macOS DMG 安装包界面美化：自定义背景、图标拖拽布局、卷标图标与固定窗口尺寸
+
 ## [2.3.7] - 2026-07-06
 
 ### Fixed
