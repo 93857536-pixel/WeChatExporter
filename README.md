@@ -69,7 +69,7 @@
 ### macOS
 
 1. 下载并打开 **`WeChatExporter-macOS-arm64.dmg`**
-2. 将 **WeChatExporter** 拖到 **应用程序** 文件夹
+2. 在弹出的安装窗口中，将 **WeChatExporter** 拖到右侧 **「应用程序」** 文件夹
 3. 打开应用（若提示无法验证开发者，请 **右键 → 打开**）
 4. 点击 **「准备数据」** → 选择联系人 → **「导出选中」**
 
@@ -115,9 +115,11 @@ cd windows
 Sources/WeChatExporter/     # SwiftUI 应用
 scripts/
 ├── bundle_wx_cli.sh        # 打包内置 wx-cli
-├── create_dmg.sh           # 生成 DMG
+├── create_dmg.sh           # 生成带自定义背景的 DMG
+├── generate_dmg_background.py  # DMG 背景图生成
 └── prepare_icon.sh         # 生成 AppIcon.icns
 assets/AppIcon.png          # 应用图标源文件
+assets/dmg-background.png   # DMG 安装窗口背景（Retina）
 docs/screenshots/           # README 截图
 ```
 
