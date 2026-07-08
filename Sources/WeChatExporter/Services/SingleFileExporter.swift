@@ -32,7 +32,7 @@ enum SingleFileExporter {
         for row in rows {
             body += renderMessage(row, sourceDir: sourceDir, embedded: &embedded)
         }
-        body += renderOrphanMedia(sourceDir: sourceDir, embedded: embedded)
+        body += renderOrphanMedia(sourceDir: sourceDir, embedded: &embedded)
 
         let html = """
         <!DOCTYPE html>
@@ -101,7 +101,7 @@ enum SingleFileExporter {
         """
     }
 
-    private static func renderOrphanMedia(sourceDir: URL, embedded: Set<String>) -> String {
+    private static func renderOrphanMedia(sourceDir: URL, embedded: inout Set<String>) -> String {
         let mediaRoot = sourceDir.appendingPathComponent("media", isDirectory: true)
         guard let enumerator = FileManager.default.enumerator(
             at: mediaRoot,
@@ -162,9 +162,7 @@ enum SingleFileExporter {
 
     private static func parseMessages(from jsonURL: URL) throws -> [MessageRow] {
         let data = try Data(contentsOf: jsonURL)
-        guard let root = try JSONSerialization.jsonObject(with: data) else {
-            throw AppError.exportFailed("chat.json 解析失败")
-        }
+        let root = try JSONSerialization.jsonObject(with: data)
 
         let rawRows: [[String: Any]]
         if let array = root as? [[String: Any]] {

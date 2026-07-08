@@ -34,45 +34,25 @@ internal static class SingleFileExporter
             body.Append(RenderMessage(row, sourceDir, embedded));
         body.Append(RenderOrphanMedia(sourceDir, embedded));
 
-        var html = $"""
-            <!DOCTYPE html>
-            <html lang="zh-CN">
-            <head>
-              <meta charset="utf-8"/>
-              <meta name="viewport" content="width=device-width, initial-scale=1"/>
-              <title>{title}</title>
-              <style>
-                * {{ box-sizing: border-box; }}
-                body {{ font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; background: #ebebeb; color: #111; }}
-                header {{ background: linear-gradient(135deg, #07c160, #06ad56); color: #fff; padding: 20px 24px; }}
-                header h1 {{ margin: 0 0 6px; font-size: 22px; }}
-                header p {{ margin: 0; opacity: .92; font-size: 13px; }}
-                main {{ max-width: 860px; margin: 0 auto; padding: 20px 16px 48px; }}
-                .msg {{ background: #fff; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }}
-                .meta {{ font-size: 12px; color: #666; margin-bottom: 6px; }}
-                .sender {{ font-weight: 600; color: #07c160; }}
-                .type {{ color: #999; margin-left: 8px; }}
-                .text {{ white-space: pre-wrap; word-break: break-word; line-height: 1.55; }}
-                .media {{ margin-top: 10px; }}
-                .media img {{ max-width: min(100%, 420px); border-radius: 8px; display: block; }}
-                .media video, .media audio {{ max-width: 100%; margin-top: 6px; display: block; }}
-                footer {{ text-align: center; color: #999; font-size: 12px; padding: 24px; }}
-              </style>
-            </head>
-            <body>
-              <header>
-                <h1>{title}</h1>
-                <p>共 {rows.Count} 条消息 · 单文件导出（媒体已内嵌）· {stamp}</p>
-              </header>
-              <main>
-            {body}
-              </main>
-              <footer>由 WeChatExporter 导出</footer>
-            </body>
-            </html>
-            """;
+        var html = new StringBuilder();
+        html.Append("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"/>");
+        html.Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>");
+        html.Append($"<title>{title}</title><style>");
+        html.Append("*{box-sizing:border-box}body{font-family:\"Segoe UI\",\"PingFang SC\",\"Microsoft YaHei\",sans-serif;margin:0;background:#ebebeb;color:#111}");
+        html.Append("header{background:linear-gradient(135deg,#07c160,#06ad56);color:#fff;padding:20px 24px}");
+        html.Append("header h1{margin:0 0 6px;font-size:22px}header p{margin:0;opacity:.92;font-size:13px}");
+        html.Append("main{max-width:860px;margin:0 auto;padding:20px 16px 48px}");
+        html.Append(".msg{background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.06)}");
+        html.Append(".meta{font-size:12px;color:#666;margin-bottom:6px}.sender{font-weight:600;color:#07c160}");
+        html.Append(".type{color:#999;margin-left:8px}.text{white-space:pre-wrap;word-break:break-word;line-height:1.55}");
+        html.Append(".media{margin-top:10px}.media img{max-width:min(100%,420px);border-radius:8px;display:block}");
+        html.Append(".media video,.media audio{max-width:100%;margin-top:6px;display:block}");
+        html.Append("footer{text-align:center;color:#999;font-size:12px;padding:24px}</style></head><body>");
+        html.Append($"<header><h1>{title}</h1><p>共 {rows.Count} 条消息 · 单文件导出（媒体已内嵌）· {stamp}</p></header><main>");
+        html.Append(body);
+        html.Append("</main><footer>由 WeChatExporter 导出</footer></body></html>");
 
-        File.WriteAllText(outPath, html, Encoding.UTF8);
+        File.WriteAllText(outPath, html.ToString(), Encoding.UTF8);
         return outPath;
     }
 
