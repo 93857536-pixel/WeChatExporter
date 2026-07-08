@@ -200,6 +200,9 @@ final class WxCliService {
         if !includeMedia {
             txtArgs.append("--no-media")
             jsonArgs.append("--no-media")
+        } else {
+            txtArgs.append("--show-emoji")
+            jsonArgs.append("--show-emoji")
         }
 
         let exportTimeout: TimeInterval? = includeMedia ? nil : 600
@@ -207,6 +210,10 @@ final class WxCliService {
         _ = try await run(jsonArgs, timeout: exportTimeout, log: log)
 
         Self.normalizeExportArtifacts(in: outputDir, log: log)
+        if includeMedia {
+            _ = await EmojiExporter.exportEmojis(in: outputDir, log: log)
+            Self.normalizeExportArtifacts(in: outputDir, log: log)
+        }
         let count = Self.countExportedMessages(in: outputDir)
         if count > 0 {
             log("共导出 \(count) 条消息")

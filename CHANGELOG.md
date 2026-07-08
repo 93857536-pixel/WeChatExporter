@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.4.0] - 2026-07-08
+
+### Added
+- 勾选「同时导出媒体」时自动下载聊天中的表情/贴纸（GIF/PNG）到 `media/emojis/`
+- macOS 导出时向 wx-cli 传递 `--show-emoji`，保留表情详情
+
+### Changed
+- 导出选项文案明确包含「表情」
+
 ## [2.3.9] - 2026-07-07
 
 ### Fixed

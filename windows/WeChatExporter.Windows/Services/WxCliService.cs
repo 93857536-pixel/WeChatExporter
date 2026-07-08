@@ -198,6 +198,8 @@ public sealed class WxCliService
             {
                 log($"媒体导出提示：Markdown/附件导出未完成（{ex.Message}）");
             }
+
+            await EmojiExporter.ExportEmojisAsync(outputDir, log, cancellationToken);
         }
 
         var count = await WriteCsvFromJsonAsync(jsonPath, csvPath);
