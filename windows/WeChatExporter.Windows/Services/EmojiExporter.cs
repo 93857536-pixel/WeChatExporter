@@ -1,9 +1,9 @@
+using System.IO;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace WeChatExporter.Windows.Services;
+namespace WeChatExporter.Services;
 
 /// <summary>
 /// 从 wx-cli 导出的 JSON 中解析表情 XML，下载 GIF/PNG 到 media/emojis/
@@ -37,7 +37,7 @@ internal static class EmojiExporter
 
         for (var i = 0; i < items.Count; i++)
         {
-            var item = items[i].DeepClone();
+            var item = CloneJson(items[i]);
             var xmlSources = CollectEmojiXml(item);
             if (xmlSources.Count == 0) continue;
 
@@ -80,7 +80,7 @@ internal static class EmojiExporter
         if (root.ValueKind == JsonValueKind.Array)
         {
             path = "$";
-            items = root.EnumerateArray().Select(e => e.DeepClone()).ToList();
+            items = root.EnumerateArray().Select(CloneJson).ToList();
             return items.Count > 0;
         }
 
@@ -90,7 +90,7 @@ internal static class EmojiExporter
             if (root.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
             {
                 path = key;
-                items = arr.EnumerateArray().Select(e => e.DeepClone()).ToList();
+                items = arr.EnumerateArray().Select(CloneJson).ToList();
                 return items.Count > 0;
             }
         }
@@ -244,7 +244,7 @@ internal static class EmojiExporter
     private static JsonElement AppendMediaFile(JsonElement item, string path)
     {
         var obj = item.ValueKind == JsonValueKind.Object
-            ? item.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.DeepClone())
+            ? item.EnumerateObject().ToDictionary(p => p.Name, p => CloneJson(p.Value))
             : new Dictionary<string, JsonElement>();
 
         if (!obj.TryGetValue("media_files", out var filesEl) || filesEl.ValueKind != JsonValueKind.Array)
@@ -260,6 +260,9 @@ internal static class EmojiExporter
 
         return JsonSerializer.SerializeToElement(obj);
     }
+
+    private static JsonElement CloneJson(JsonElement element) =>
+        JsonSerializer.Deserialize<JsonElement>(element.GetRawText());
 
     private static async Task<bool> DownloadAsync(string url, string dest, CancellationToken cancellationToken)
     {
