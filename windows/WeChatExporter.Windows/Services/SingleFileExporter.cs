@@ -55,6 +55,83 @@ internal static class SingleFileExporter
         return outPath;
     }
 
+    public static string? WriteStickerGallery(string sourceDir, string destinationDir)
+    {
+        var manifestPath = Path.Combine(sourceDir, "stickers-manifest.json");
+        if (!File.Exists(manifestPath)) return null;
+
+        var manifest = JsonSerializer.Deserialize<StickerPackExporter.Manifest>(
+            File.ReadAllText(manifestPath),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (manifest is null || manifest.Packs.Count == 0) return null;
+
+        var stamp = FileStamp();
+        Directory.CreateDirectory(destinationDir);
+        var outPath = Path.Combine(destinationDir, $"全部表情包_{stamp}.html");
+
+        var body = new StringBuilder();
+        foreach (var pack in manifest.Packs)
+            body.Append(RenderStickerPack(pack, sourceDir));
+
+        var html = new StringBuilder();
+        html.Append("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"/>");
+        html.Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>");
+        html.Append("<title>全部表情包</title><style>");
+        html.Append(ExportStyles);
+        html.Append(GalleryStyles);
+        html.Append("</style></head><body>");
+        html.Append("<div class=\"bg-scene\" aria-hidden=\"true\">");
+        html.Append("<div class=\"aurora aurora-a\"></div><div class=\"aurora aurora-b\"></div><div class=\"aurora aurora-c\"></div>");
+        html.Append("<div class=\"grid-floor\"></div></div>");
+        html.Append("<header><div class=\"header-glow\"></div>");
+        html.Append("<p class=\"eyebrow\">WeChatExporter · 表情包库</p>");
+        html.Append("<h1>全部表情包</h1><div class=\"stats\">");
+        html.Append($"<span class=\"pill pill-cyan\">{manifest.TotalCount} 张表情</span>");
+        html.Append($"<span class=\"pill pill-purple\">{manifest.Packs.Count} 个分组</span>");
+        html.Append($"<span class=\"pill pill-muted\">{stamp}</span></div></header><main>");
+        html.Append(body);
+        html.Append("</main><footer><span class=\"footer-brand\">WeChatExporter</span>");
+        html.Append("<span class=\"footer-dot\">·</span><span>收藏与商店表情包 · 浏览器离线可阅</span></footer></body></html>");
+
+        File.WriteAllText(outPath, html.ToString(), Encoding.UTF8);
+        return outPath;
+    }
+
+    private static string RenderStickerPack(StickerPackExporter.StickerPack pack, string sourceDir)
+    {
+        var tiles = new StringBuilder();
+        foreach (var sticker in pack.Stickers)
+        {
+            var block = EmbedMedia(sticker.Path, sourceDir);
+            if (block is null) continue;
+            var caption = EscapeHtml(sticker.Caption);
+            tiles.Append("<figure class=\"sticker-tile\">");
+            tiles.Append(block);
+            if (!string.IsNullOrEmpty(caption))
+                tiles.Append($"<figcaption>{caption}</figcaption>");
+            tiles.Append("</figure>");
+        }
+        if (tiles.Length == 0) return "";
+        return $"""
+            <section class="sticker-pack">
+              <h2>{EscapeHtml(pack.Name)} <span class="pack-count">{pack.Stickers.Count}</span></h2>
+              <div class="sticker-grid">{tiles}</div>
+            </section>
+
+            """;
+    }
+
+    private const string GalleryStyles = """
+        .sticker-pack{margin-bottom:36px}
+        .sticker-pack h2{margin:0 0 14px;font-size:18px;color:var(--cyan);text-shadow:0 0 12px rgba(0,245,255,.35);display:flex;align-items:center;gap:8px}
+        .pack-count{font-size:12px;color:var(--subtext);padding:2px 8px;border-radius:999px;border:1px solid rgba(123,97,255,.35);background:rgba(123,97,255,.12)}
+        .sticker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px}
+        .sticker-tile{margin:0;background:rgba(12,20,48,.55);border:1px solid rgba(0,245,255,.18);border-radius:12px;padding:8px;box-shadow:0 0 16px rgba(123,97,255,.08);transition:border-color .2s ease,transform .2s ease}
+        .sticker-tile:hover{border-color:rgba(0,245,255,.42);transform:translateY(-2px)}
+        .sticker-tile img{width:100%;height:auto;display:block;border-radius:8px;border:none;box-shadow:none}
+        .sticker-tile figcaption{margin-top:6px;font-size:11px;color:var(--subtext);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        """;
+
     /// <summary>与 DMG 安装界面一致的深空霓虹 HUD 样式。</summary>
     private const string ExportStyles = """
         :root{--cyan:#00f5ff;--purple:#7b61ff;--magenta:#ff4dd2;--green:#07ffa0;--text:#f0f8ff;--subtext:#8caad2;--glass:rgba(12,20,48,0.78);--glass-strong:rgba(8,14,36,0.92);--line:rgba(0,245,255,0.22)}
