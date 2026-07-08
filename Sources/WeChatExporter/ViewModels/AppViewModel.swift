@@ -286,33 +286,47 @@ final class AppViewModel: ObservableObject {
             switch backend {
             case .wxCli(let wxCli):
                 for contact in selected {
-                    let safeName = contact.displayName.replacingOccurrences(of: "/", with: "_")
-                    let outDir = base.appendingPathComponent(safeName, isDirectory: true)
+                    let tempDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("WeChatExporter-\(UUID().uuidString)", isDirectory: true)
+                    defer { try? FileManager.default.removeItem(at: tempDir) }
+
                     let count = try await wxCli.export(
                         contact: contact,
-                        outputDir: outDir,
+                        outputDir: tempDir,
                         includeMedia: includeMedia,
                         log: logHandler()
                     )
-                    summary.append("• \(contact.displayName)：\(count) 条")
+                    let htmlURL = try SingleFileExporter.writeHTML(
+                        from: tempDir,
+                        contactName: contact.displayName,
+                        into: base
+                    )
+                    summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
                 }
             case .native(let paths):
                 guard paths.isDecryptedHealthy else {
                     throw AppError.exportFailed("请先点击「准备数据」")
                 }
                 for contact in selected {
-                    let safeName = contact.displayName.replacingOccurrences(of: "/", with: "_")
-                    let outDir = base.appendingPathComponent(safeName, isDirectory: true)
+                    let tempDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("WeChatExporter-\(UUID().uuidString)", isDirectory: true)
+                    defer { try? FileManager.default.removeItem(at: tempDir) }
+
                     appendLog("导出：\(contact.displayName)")
                     let count = try ChatExporter.export(
                         contact: contact,
                         decryptedDir: paths.decryptedDir,
-                        outputDir: outDir
+                        outputDir: tempDir
                     )
-                    summary.append("• \(contact.displayName)：\(count) 条")
+                    let htmlURL = try SingleFileExporter.writeHTML(
+                        from: tempDir,
+                        contactName: contact.displayName,
+                        into: base
+                    )
+                    summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
                 }
             }
-            alertMessage = "已导出 \(selected.count) 个会话到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))"
+            alertMessage = "已导出 \(selected.count) 个单文件到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。"
             showAlert = true
         } catch {
             presentError(error.localizedDescription)
