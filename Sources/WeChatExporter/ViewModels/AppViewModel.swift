@@ -285,6 +285,16 @@ final class AppViewModel: ObservableObject {
         do {
             switch backend {
             case .wxCli(let wxCli):
+                if includeMedia {
+                    let stickerTemp = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("WeChatExporter-stickers-\(UUID().uuidString)", isDirectory: true)
+                    defer { try? FileManager.default.removeItem(at: stickerTemp) }
+                    let stickerCount = await StickerPackExporter.exportAllPacks(in: stickerTemp, log: logHandler())
+                    if stickerCount > 0, let galleryURL = try SingleFileExporter.writeStickerGallery(from: stickerTemp, into: base) {
+                        summary.append("• 全部表情包：\(stickerCount) 张 → \(galleryURL.lastPathComponent)")
+                    }
+                }
+
                 for contact in selected {
                     let tempDir = FileManager.default.temporaryDirectory
                         .appendingPathComponent("WeChatExporter-\(UUID().uuidString)", isDirectory: true)

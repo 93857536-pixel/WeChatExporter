@@ -260,6 +260,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Directory.CreateDirectory(ExportPath);
+            if (IncludeMedia)
+            {
+                var stickerTemp = Path.Combine(Path.GetTempPath(), $"WeChatExporter-stickers-{Guid.NewGuid():N}");
+                try
+                {
+                    var stickerCount = await StickerPackExporter.ExportAllPacksAsync(stickerTemp, AppendLog);
+                    if (stickerCount > 0)
+                    {
+                        var galleryPath = SingleFileExporter.WriteStickerGallery(stickerTemp, ExportPath);
+                        if (galleryPath is not null)
+                            summary.Add($"• 全部表情包：{stickerCount} 张 → {Path.GetFileName(galleryPath)}");
+                    }
+                }
+                finally
+                {
+                    try { if (Directory.Exists(stickerTemp)) Directory.Delete(stickerTemp, true); } catch { /* ignore */ }
+                }
+            }
+
             foreach (var contact in SelectedContacts.ToList())
             {
                 var tempDir = Path.Combine(Path.GetTempPath(), $"WeChatExporter-{Guid.NewGuid():N}");

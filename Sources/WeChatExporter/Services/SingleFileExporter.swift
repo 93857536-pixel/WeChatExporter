@@ -79,7 +79,147 @@ enum SingleFileExporter {
         return outURL
     }
 
-    // MARK: - Rendering
+    /// 从 `stickers-manifest.json` 生成全部表情包画廊 HTML。
+    static func writeStickerGallery(from sourceDir: URL, into destinationDir: URL) throws -> URL? {
+        let manifestURL = sourceDir.appendingPathComponent("stickers-manifest.json")
+        guard FileManager.default.fileExists(atPath: manifestURL.path),
+              let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? JSONDecoder().decode(StickerPackExporter.Manifest.self, from: data),
+              !manifest.packs.isEmpty else {
+            return nil
+        }
+
+        let stamp = fileStamp()
+        let outURL = destinationDir.appendingPathComponent("全部表情包_\(stamp).html")
+        var body = ""
+        for pack in manifest.packs {
+            body += renderStickerPack(pack, sourceDir: sourceDir)
+        }
+
+        let html = """
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+          <meta charset="utf-8"/>
+          <meta name="viewport" content="width=device-width, initial-scale=1"/>
+          <title>全部表情包</title>
+          <style>
+            \(exportStyles)
+            \(galleryStyles)
+          </style>
+        </head>
+        <body>
+          <div class="bg-scene" aria-hidden="true">
+            <div class="aurora aurora-a"></div>
+            <div class="aurora aurora-b"></div>
+            <div class="aurora aurora-c"></div>
+            <div class="grid-floor"></div>
+          </div>
+          <header>
+            <div class="header-glow"></div>
+            <p class="eyebrow">WeChatExporter · 表情包库</p>
+            <h1>全部表情包</h1>
+            <div class="stats">
+              <span class="pill pill-cyan">\(manifest.totalCount) 张表情</span>
+              <span class="pill pill-purple">\(manifest.packs.count) 个分组</span>
+              <span class="pill pill-muted">\(stamp)</span>
+            </div>
+          </header>
+          <main>
+        \(body)
+          </main>
+          <footer>
+            <span class="footer-brand">WeChatExporter</span>
+            <span class="footer-dot">·</span>
+            <span>收藏与商店表情包 · 浏览器离线可阅</span>
+          </footer>
+        </body>
+        </html>
+        """
+
+        try FileManager.default.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+        try html.write(to: outURL, atomically: true, encoding: .utf8)
+        return outURL
+    }
+
+    private static func renderStickerPack(_ pack: StickerPackExporter.StickerPack, sourceDir: URL) -> String {
+        var tiles = ""
+        for sticker in pack.stickers {
+            guard let block = embedMedia(relativePath: sticker.path, sourceDir: sourceDir) else { continue }
+            let caption = escapeHTML(sticker.caption)
+            tiles += """
+                <figure class="sticker-tile">
+                  \(block)
+                  \(caption.isEmpty ? "" : "<figcaption>\(caption)</figcaption>")
+                </figure>
+
+            """
+        }
+        guard !tiles.isEmpty else { return "" }
+        return """
+            <section class="sticker-pack">
+              <h2>\(escapeHTML(pack.name)) <span class="pack-count">\(pack.stickers.count)</span></h2>
+              <div class="sticker-grid">\(tiles)</div>
+            </section>
+
+        """
+    }
+
+    private static let galleryStyles = """
+    .sticker-pack { margin-bottom: 36px; }
+    .sticker-pack h2 {
+      margin: 0 0 14px;
+      font-size: 18px;
+      color: var(--cyan);
+      text-shadow: 0 0 12px rgba(0,245,255,0.35);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pack-count {
+      font-size: 12px;
+      color: var(--subtext);
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(123,97,255,0.35);
+      background: rgba(123,97,255,0.12);
+    }
+    .sticker-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+      gap: 12px;
+    }
+    .sticker-tile {
+      margin: 0;
+      background: rgba(12,20,48,0.55);
+      border: 1px solid rgba(0,245,255,0.18);
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: 0 0 16px rgba(123,97,255,0.08);
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+    .sticker-tile:hover {
+      border-color: rgba(0,245,255,0.42);
+      transform: translateY(-2px);
+    }
+    .sticker-tile img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 8px;
+      border: none;
+      box-shadow: none;
+    }
+    .sticker-tile figcaption {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--subtext);
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    """
 
     /// 与 DMG 安装界面一致的深空霓虹 HUD 样式（青 #00f5ff · 紫 #7b61ff · 品红 #ff4dd2）
     private static let exportStyles = """

@@ -138,7 +138,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("导出设置", systemImage: "slider.horizontal.3")
                         .font(.headline)
-                    Toggle("同时导出图片、表情等媒体并内嵌到 HTML（体积更大，耗时更长）", isOn: $model.includeMedia)
+                    Toggle("同时导出图片、表情、全部表情包等媒体并内嵌到 HTML（体积更大，耗时更长）", isOn: $model.includeMedia)
                         .toggleStyle(.switch)
                 }
                 .padding(4)

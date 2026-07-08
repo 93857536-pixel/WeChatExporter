@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.6.0] - 2026-07-08
+
+### Added
+- 勾选「同时导出媒体」时额外导出**全部表情包**（收藏表情 + 已下载商店表情），生成独立的 `全部表情包_<时间>.html` 画廊文件
+- 从 wx-cli 解密缓存中的 `emoticon.db` 读取 CDN 链接并下载（支持 AES 加密表情）
+
+### Changed
+- 导出选项文案明确包含「全部表情包」
+
 ## [2.5.1] - 2026-07-08
 
 ### Changed
