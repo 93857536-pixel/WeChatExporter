@@ -256,6 +256,9 @@ enum StickerPackExporter {
         let dest = dir.appendingPathComponent(filename)
         do {
             try data.write(to: dest, options: .atomic)
+            if ext == "wxgf", let transcoded = WXGFTranscoder.transcodeIfNeeded(at: dest) {
+                return transcoded.lastPathComponent
+            }
             return filename
         } catch {
             return nil
@@ -311,7 +314,7 @@ enum StickerPackExporter {
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "png" }
         if data.starts(with: Array("GIF".utf8)) { return "gif" }
         if data.starts(with: Array("RIFF".utf8)) { return "webp" }
-        if data.starts(with: Array("WXGF".utf8)) { return "bin" }
+        if data.starts(with: Array("WXGF".utf8)) { return "wxgf" }
         return "gif"
     }
 

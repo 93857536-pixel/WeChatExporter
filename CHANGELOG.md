@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.6.2] - 2026-07-08
+
+### Added
+- **WXGFTranscoder**：自动将微信 `*.wxgf` 图片提取 HEVC 首帧并转码为 JPEG 后嵌入 HTML
+- 表情包导出遇到 WXGF 资源时，同样会尝试自动转码
+
+### Fixed
+- HTML 导出里 WXGF 图片只显示占位提示、无法直接浏览的问题（macOS 原生解码优先，双平台支持 ffmpeg 回退）
+
 ## [2.6.1] - 2026-07-08
 
 ### Added

@@ -8,7 +8,7 @@
     <AssemblyName>WeChatExporter</AssemblyName>
     <RootNamespace>WeChatExporter</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>2.6.0</Version>
+    <Version>2.6.2</Version>
     <Company>WeChatExporter</Company>
     <Product>微信聊天记录导出</Product>
     <Description>Windows 版微信聊天记录导出工具</Description>

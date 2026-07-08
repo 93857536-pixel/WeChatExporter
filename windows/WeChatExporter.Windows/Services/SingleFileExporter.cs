@@ -236,6 +236,12 @@ internal static class SingleFileExporter
         if (!File.Exists(filePath)) return null;
 
         var ext = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
+        if (ext == "wxgf" && WXGFTranscoder.TranscodeIfNeeded(filePath) is { } transcodedPath)
+        {
+            var decodedRel = Path.ChangeExtension(rel, Path.GetExtension(transcodedPath)).Replace('\\', '/');
+            return EmbedMedia(decodedRel, sourceDir);
+        }
+
         if (ext is "dat" or "wxgf")
         {
             var basePath = Path.Combine(Path.GetDirectoryName(filePath)!, Path.GetFileNameWithoutExtension(filePath));
@@ -269,7 +275,7 @@ internal static class SingleFileExporter
             "mp3" => $"""<audio controls src="data:audio/mpeg;base64,{rawB64}"></audio>""",
             "m4a" or "aac" => $"""<audio controls src="data:audio/mp4;base64,{rawB64}"></audio>""",
             "mp4" or "mov" => $"""<video controls src="data:video/mp4;base64,{rawB64}"></video>""",
-            "wxgf" => $"""<p class="text">[WXGF 图片未能解码：{EscapeHtml(Path.GetFileName(filePath))}]</p>""",
+            "wxgf" => $"""<p class="text">[WXGF 图片转码失败：{EscapeHtml(Path.GetFileName(filePath))}。如系统未安装 ffmpeg，Windows 可能仍无法解码]</p>""",
             "silk" => $"""<p class="text">[语音 SILK：{EscapeHtml(Path.GetFileName(filePath))}，{data.Length} 字节]</p>""",
             _ => $"""<p class="text">[附件 {EscapeHtml(Path.GetFileName(filePath))}，{data.Length} 字节]</p>"""
         };
