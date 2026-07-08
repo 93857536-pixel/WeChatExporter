@@ -454,13 +454,15 @@ enum SingleFileExporter {
       color: rgba(240,248,255,0.94);
     }
     .media { margin-top: 12px; }
-    .media img {
+    .media img, .media .chat-img {
       max-width: min(100%, 440px);
       border-radius: 12px;
       display: block;
       border: 1px solid rgba(0,245,255,0.32);
       box-shadow: 0 0 24px rgba(0,245,255,0.18), 0 8px 24px rgba(0,0,0,0.35);
+      cursor: zoom-in;
     }
+    .media img:active, .media .chat-img:active { transform: scale(1.01); }
     .media video, .media audio {
       max-width: 100%;
       margin-top: 8px;
@@ -549,23 +551,42 @@ enum SingleFileExporter {
     private static func embedMedia(relativePath: String, sourceDir: URL) -> String? {
         let rel = relativePath.hasPrefix("media/") ? relativePath : "media/\(relativePath)"
         let fileURL = sourceDir.appendingPathComponent(rel)
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              !data.isEmpty else { return nil }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
 
         let ext = fileURL.pathExtension.lowercased()
+        if ext == "dat" || ext == "wxgf" {
+            let base = fileURL.deletingPathExtension()
+            for alt in ["jpg", "jpeg", "png", "gif", "webp"] {
+                let decoded = base.appendingPathExtension(alt)
+                if FileManager.default.fileExists(atPath: decoded.path) {
+                    let decodedRel = (rel as NSString).deletingPathExtension + ".\(alt)"
+                    return embedMedia(relativePath: decodedRel, sourceDir: sourceDir)
+                }
+            }
+        }
+
+        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else { return nil }
+
+        if let imageData = ImageExporter.normalizeImageData(data),
+           let mime = ImageExporter.sniffImageMIME(imageData) {
+            let b64 = imageData.base64EncodedString()
+            return "<img alt=\"图片\" class=\"chat-img\" loading=\"lazy\" src=\"data:\(mime);base64,\(b64)\"/>"
+        }
+
         let b64 = data.base64EncodedString()
         switch ext {
         case "jpg", "jpeg":
-            return "<img alt=\"图片\" src=\"data:image/jpeg;base64,\(b64)\"/>"
+            return "<img alt=\"图片\" class=\"chat-img\" loading=\"lazy\" src=\"data:image/jpeg;base64,\(b64)\"/>"
         case "png":
-            return "<img alt=\"图片\" src=\"data:image/png;base64,\(b64)\"/>"
+            return "<img alt=\"图片\" class=\"chat-img\" loading=\"lazy\" src=\"data:image/png;base64,\(b64)\"/>"
         case "gif":
-            return "<img alt=\"表情\" src=\"data:image/gif;base64,\(b64)\"/>"
+            return "<img alt=\"表情\" class=\"chat-img\" loading=\"lazy\" src=\"data:image/gif;base64,\(b64)\"/>"
         case "webp":
-            return "<img alt=\"图片\" src=\"data:image/webp;base64,\(b64)\"/>"
+            return "<img alt=\"图片\" class=\"chat-img\" loading=\"lazy\" src=\"data:image/webp;base64,\(b64)\"/>"
+        case "dat":
+            return "<p class=\"text\">[加密图片未能解密：\(escapeHTML(fileURL.lastPathComponent))]</p>"
         case "wxgf":
-            return "<p class=\"text\">[WXGF 图片，请用专用工具查看：\(escapeHTML(fileURL.lastPathComponent))]</p>"
+            return "<p class=\"text\">[WXGF 图片未能解码：\(escapeHTML(fileURL.lastPathComponent))]</p>"
         case "mp3", "m4a", "aac":
             let mime = ext == "mp3" ? "audio/mpeg" : "audio/mp4"
             return "<audio controls src=\"data:\(mime);base64,\(b64)\"></audio>"

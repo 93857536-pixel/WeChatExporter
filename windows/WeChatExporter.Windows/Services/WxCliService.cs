@@ -200,6 +200,7 @@ public sealed class WxCliService
             }
 
             await EmojiExporter.ExportEmojisAsync(outputDir, log, cancellationToken);
+            await ImageExporter.ExportImagesAsync(outputDir, log, cancellationToken);
         }
 
         var count = await WriteCsvFromJsonAsync(jsonPath, csvPath);

@@ -212,6 +212,7 @@ final class WxCliService {
         Self.normalizeExportArtifacts(in: outputDir, log: log)
         if includeMedia {
             _ = await EmojiExporter.exportEmojis(in: outputDir, log: log)
+            _ = await ImageExporter.exportImages(in: outputDir, log: log)
             Self.normalizeExportArtifacts(in: outputDir, log: log)
         }
         let count = Self.countExportedMessages(in: outputDir)
