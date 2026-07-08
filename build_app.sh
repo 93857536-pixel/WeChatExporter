@@ -8,7 +8,7 @@ BINARY="$ROOT/.build/release/WeChatExporter"
 ICON_SRC="$ROOT/assets/AppIcon.icns"
 ICON_PNG="$ROOT/assets/AppIcon.png"
 WX_CLI_VERSION="${WX_CLI_VERSION:-v0.7.2}"
-APP_VERSION="${APP_VERSION:-2.5.0}"
+APP_VERSION="${APP_VERSION:-2.5.1}"
 APP_BUILD="${APP_BUILD:-15}"
 
 echo "编译原生 macOS 应用…"
