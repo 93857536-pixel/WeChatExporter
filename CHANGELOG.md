@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.6.1] - 2026-07-08
+
+### Added
+- **ImageExporter**：从聊天 JSON 解析 `<img>` 标签，按 CDN 链接下载图片并写入消息
+- **DatImageDecoder**：自动解密 `.dat` 加密图片（优先 wx-cli `decode-image`，失败时 XOR 探测）
+- HTML 导出以 `<img>` 内嵌 base64，聊天图片可直接在浏览器中显示
+
+### Fixed
+- 勾选媒体导出后仍只显示 `[图片]` 占位、无法看图的问题
+
 ## [2.6.0] - 2026-07-08
 
 ### Added

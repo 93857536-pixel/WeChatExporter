@@ -166,7 +166,7 @@ internal static class SingleFileExporter
         .time{color:var(--subtext);margin-left:auto;font-variant-numeric:tabular-nums}
         .text{white-space:pre-wrap;word-break:break-word;line-height:1.65;color:rgba(240,248,255,.94)}
         .media{margin-top:12px}
-        .media img{max-width:min(100%,440px);border-radius:12px;display:block;border:1px solid rgba(0,245,255,.32);box-shadow:0 0 24px rgba(0,245,255,.18),0 8px 24px rgba(0,0,0,.35)}
+        .media img,.media .chat-img{max-width:min(100%,440px);border-radius:12px;display:block;border:1px solid rgba(0,245,255,.32);box-shadow:0 0 24px rgba(0,245,255,.18),0 8px 24px rgba(0,0,0,.35);cursor:zoom-in}
         .media video,.media audio{max-width:100%;margin-top:8px;display:block;border-radius:12px;border:1px solid rgba(123,97,255,.28);box-shadow:0 0 20px rgba(123,97,255,.15);background:var(--glass-strong)}
         footer{text-align:center;color:var(--subtext);font-size:12px;padding:28px 16px 36px;border-top:1px solid rgba(123,97,255,.15);background:linear-gradient(180deg,transparent,rgba(8,14,36,.55))}
         .footer-brand{color:var(--cyan);font-weight:600;text-shadow:0 0 10px rgba(0,245,255,.35)}
@@ -234,21 +234,42 @@ internal static class SingleFileExporter
         var rel = relativePath.StartsWith("media/", StringComparison.OrdinalIgnoreCase) ? relativePath : $"media/{relativePath}";
         var filePath = Path.Combine(sourceDir, rel.Replace('/', Path.DirectorySeparatorChar));
         if (!File.Exists(filePath)) return null;
+
+        var ext = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
+        if (ext is "dat" or "wxgf")
+        {
+            var basePath = Path.Combine(Path.GetDirectoryName(filePath)!, Path.GetFileNameWithoutExtension(filePath));
+            foreach (var alt in new[] { "jpg", "jpeg", "png", "gif", "webp" })
+            {
+                var decoded = $"{basePath}.{alt}";
+                if (!File.Exists(decoded)) continue;
+                var decodedRel = Path.ChangeExtension(rel, alt).Replace('\\', '/');
+                return EmbedMedia(decodedRel, sourceDir);
+            }
+        }
+
         var data = File.ReadAllBytes(filePath);
         if (data.Length == 0) return null;
 
-        var ext = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
-        var b64 = Convert.ToBase64String(data);
+        var normalized = ImageExporter.NormalizeImageData(data);
+        if (normalized is not null && ImageExporter.SniffImageMime(normalized) is { } mime)
+        {
+            var b64 = Convert.ToBase64String(normalized);
+            return $"""<img alt="图片" class="chat-img" loading="lazy" src="data:{mime};base64,{b64}"/>""";
+        }
+
+        var rawB64 = Convert.ToBase64String(data);
         return ext switch
         {
-            "jpg" or "jpeg" => $"""<img alt="图片" src="data:image/jpeg;base64,{b64}"/>""",
-            "png" => $"""<img alt="图片" src="data:image/png;base64,{b64}"/>""",
-            "gif" => $"""<img alt="表情" src="data:image/gif;base64,{b64}"/>""",
-            "webp" => $"""<img alt="图片" src="data:image/webp;base64,{b64}"/>""",
-            "mp3" => $"""<audio controls src="data:audio/mpeg;base64,{b64}"></audio>""",
-            "m4a" or "aac" => $"""<audio controls src="data:audio/mp4;base64,{b64}"></audio>""",
-            "mp4" or "mov" => $"""<video controls src="data:video/mp4;base64,{b64}"></video>""",
-            "wxgf" => $"""<p class="text">[WXGF 图片：{EscapeHtml(Path.GetFileName(filePath))}]</p>""",
+            "jpg" or "jpeg" => $"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/jpeg;base64,{rawB64}"/>""",
+            "png" => $"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/png;base64,{rawB64}"/>""",
+            "gif" => $"""<img alt="表情" class="chat-img" loading="lazy" src="data:image/gif;base64,{rawB64}"/>""",
+            "webp" => $"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/webp;base64,{rawB64}"/>""",
+            "dat" => $"""<p class="text">[加密图片未能解密：{EscapeHtml(Path.GetFileName(filePath))}]</p>""",
+            "mp3" => $"""<audio controls src="data:audio/mpeg;base64,{rawB64}"></audio>""",
+            "m4a" or "aac" => $"""<audio controls src="data:audio/mp4;base64,{rawB64}"></audio>""",
+            "mp4" or "mov" => $"""<video controls src="data:video/mp4;base64,{rawB64}"></video>""",
+            "wxgf" => $"""<p class="text">[WXGF 图片未能解码：{EscapeHtml(Path.GetFileName(filePath))}]</p>""",
             "silk" => $"""<p class="text">[语音 SILK：{EscapeHtml(Path.GetFileName(filePath))}，{data.Length} 字节]</p>""",
             _ => $"""<p class="text">[附件 {EscapeHtml(Path.GetFileName(filePath))}，{data.Length} 字节]</p>"""
         };
