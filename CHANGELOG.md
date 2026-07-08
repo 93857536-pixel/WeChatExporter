@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.5.1] - 2026-07-08
+
+### Changed
+- 单文件 HTML 导出界面美化：深空霓虹 HUD 风格，与 macOS DMG 安装界面视觉一致（玻璃拟态消息卡片、星点/网格背景、青紫霓虹标题与媒体光晕）
+
 ## [2.5.0] - 2026-07-08
 
 ### Changed
