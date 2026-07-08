@@ -554,6 +554,11 @@ enum SingleFileExporter {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
 
         let ext = fileURL.pathExtension.lowercased()
+        if ext == "wxgf", let transcoded = WXGFTranscoder.transcodeIfNeeded(at: fileURL) {
+            let decodedRel = (rel as NSString).deletingPathExtension + "." + transcoded.pathExtension
+            return embedMedia(relativePath: decodedRel, sourceDir: sourceDir)
+        }
+
         if ext == "dat" || ext == "wxgf" {
             let base = fileURL.deletingPathExtension()
             for alt in ["jpg", "jpeg", "png", "gif", "webp"] {
@@ -586,7 +591,7 @@ enum SingleFileExporter {
         case "dat":
             return "<p class=\"text\">[加密图片未能解密：\(escapeHTML(fileURL.lastPathComponent))]</p>"
         case "wxgf":
-            return "<p class=\"text\">[WXGF 图片未能解码：\(escapeHTML(fileURL.lastPathComponent))]</p>"
+            return "<p class=\"text\">[WXGF 图片转码失败：\(escapeHTML(fileURL.lastPathComponent))。如系统未安装 ffmpeg，macOS 会尝试原生 HEVC 解码，但部分文件仍可能失败]</p>"
         case "mp3", "m4a", "aac":
             let mime = ext == "mp3" ? "audio/mpeg" : "audio/mp4"
             return "<audio controls src=\"data:\(mime);base64,\(b64)\"></audio>"

@@ -235,7 +235,10 @@ internal static class StickerPackExporter
 
         var outExt = DetectExtension(data);
         var filename = $"{md5}.{outExt}";
-        await File.WriteAllBytesAsync(Path.Combine(dir, filename), data, cancellationToken);
+        var outputPath = Path.Combine(dir, filename);
+        await File.WriteAllBytesAsync(outputPath, data, cancellationToken);
+        if (outExt == "wxgf" && WXGFTranscoder.TranscodeIfNeeded(outputPath) is { } transcodedPath)
+            return Path.GetFileName(transcodedPath);
         return filename;
     }
 
@@ -281,7 +284,7 @@ internal static class StickerPackExporter
         if (data.Length >= 4 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) return "png";
         if (data.Length >= 3 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F') return "gif";
         if (data.Length >= 4 && data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F') return "webp";
-        if (data.Length >= 4 && data[0] == 'W' && data[1] == 'X' && data[2] == 'G' && data[3] == 'F') return "bin";
+        if (data.Length >= 4 && data[0] == 'W' && data[1] == 'X' && data[2] == 'G' && data[3] == 'F') return "wxgf";
         return "gif";
     }
 
