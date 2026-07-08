@@ -262,13 +262,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Directory.CreateDirectory(ExportPath);
             foreach (var contact in SelectedContacts.ToList())
             {
-                var safeName = contact.DisplayName.Replace('/', '_');
-                var outDir = Path.Combine(ExportPath, safeName);
-                var count = await _wxCli.ExportAsync(contact, outDir, IncludeMedia, AppendLog);
-                summary.Add($"• {contact.DisplayName}：{count} 条");
+                var tempDir = Path.Combine(Path.GetTempPath(), $"WeChatExporter-{Guid.NewGuid():N}");
+                try
+                {
+                    var count = await _wxCli.ExportAsync(contact, tempDir, IncludeMedia, AppendLog);
+                    var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
+                    summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
+                }
+                finally
+                {
+                    try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { /* ignore */ }
+                }
             }
 
-            ShowAlert($"已导出 {SelectedContacts.Count} 个会话到：\n{ExportPath}\n\n{string.Join('\n', summary)}");
+            ShowAlert($"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
         }
         catch (Exception ex)
         {

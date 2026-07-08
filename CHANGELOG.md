@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.5.0] - 2026-07-08
+
+### Changed
+- 每次导出生成**单个 HTML 文件**（图片、表情、音视频以 base64 内嵌），浏览器打开即可查看全部内容
+- 不再在导出目录留下 chat.json / media 等分散文件夹
+
 ## [2.4.0] - 2026-07-08
 
 ### Added

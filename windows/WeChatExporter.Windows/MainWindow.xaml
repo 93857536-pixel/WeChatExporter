@@ -94,7 +94,7 @@
                 </Border>
 
                 <GroupBox Header="导出设置" Margin="0,0,0,16" Padding="12">
-                    <CheckBox Content="同时导出图片、表情等媒体（含 media/emojis/，额外生成 chat.md，体积更大）"
+                    <CheckBox Content="同时导出图片、表情等媒体并内嵌到 HTML（体积更大）"
                               IsChecked="{Binding IncludeMedia}"/>
                 </GroupBox>
 
