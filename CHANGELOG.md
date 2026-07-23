@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.6.3] - 2026-07-23
+
+### Fixed
+- 支持微信 **4.1.11**：内置 wx-cli 版本白名单扩展至 4.1.7–4.1.11，修复「准备数据」因版本不匹配导致的密钥捕获失败
+- 「环境检查未通过」时输出 wx-cli doctor 失败项详情，避免只看到笼统的 SIP 提示
+
+### Changed
+- 默认内置 wx-cli 改为 `93857536-pixel/wx-cli` 的 `v0.7.2-wechat411`（基于 pandorafuture/wx-cli，增加 4.1.9–4.1.11 兼容）
+
 ## [2.6.2] - 2026-07-08
 
 ### Added

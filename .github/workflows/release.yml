@@ -22,7 +22,9 @@ jobs:
       - name: Build app with bundled wx-cli
         run: ./build_app.sh
         env:
-          WX_CLI_VERSION: v0.7.2
+          WX_CLI_VERSION: v0.7.2-wechat411
+          WX_CLI_REPO: 93857536-pixel/wx-cli
+          FORCE_BUNDLE_WX_CLI: "1"
 
       - name: Create DMG installer
         run: |

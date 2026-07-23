@@ -61,7 +61,7 @@
 | 组件 | macOS | Windows |
 |------|-------|---------|
 | 内置 CLI | [pandorafuture/wx-cli](https://github.com/pandorafuture/wx-cli) v0.7.2 | [jackwener/wx-cli](https://github.com/jackwener/wx-cli) v0.3.0 |
-| 微信版本 | 4.x（4.1.7+ 更稳定） | 4.x（4.1.7+ 更稳定） |
+| 微信版本 | 4.x（已验证 4.1.7–4.1.11） | 4.x（4.1.7+；4.1.11 内存扫密钥可能失效） |
 
 > **隐私说明**：本工具仅在本地运行，不会上传任何聊天数据或密钥。
 
