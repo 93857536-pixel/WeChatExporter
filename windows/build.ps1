@@ -1,6 +1,6 @@
 # 构建 Windows 版 WeChatExporter（含内置 wx-cli）
 param(
-    [string]$WxCliVersion = "v0.3.0",
+    [string]$WxCliVersion = "vendor",
     [string]$Configuration = "Release",
     [switch]$SelfContained = $true
 )
@@ -29,7 +29,7 @@ if ($SelfContained) {
 
 dotnet @publishArgs
 
-Write-Host "打包内置 wx-cli $WxCliVersion …"
+Write-Host "打包内置 wx-cli…"
 & (Join-Path $Root "scripts\bundle_wx_cli.ps1") -DestDir $OutDir -WxCliVersion $WxCliVersion
 
 if (Test-Path $DistDir) { Remove-Item $DistDir -Recurse -Force }

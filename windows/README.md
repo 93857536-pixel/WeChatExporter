@@ -6,7 +6,7 @@
 
 **主项目 README：** [../README.md](../README.md) · **English:** [../README.en.md](../README.en.md)
 
-基于 **.NET 8 WPF** 构建，内置 [jackwener/wx-cli](https://github.com/jackwener/wx-cli)，安装即用，无需单独安装 CLI。
+基于 **.NET 8 WPF** 构建，安装包内置 `wx.exe`（见仓库 `vendor/windows/`），安装即用，无需单独安装 CLI。
 
 ## 功能
 

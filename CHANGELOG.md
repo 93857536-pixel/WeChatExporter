@@ -2,14 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.6.4] - 2026-07-23
+
+### Changed
+- **内置 wx-cli**：改为仓库 `vendor/` 随附，构建不再依赖外部 wx-cli GitHub 仓库下载
+- macOS 内置 CLI 支持微信 **4.1.7–4.1.11**
+- Windows 内置 `wx.exe` 改为使用仓库 vendored 副本（上游 jackwener/wx-cli 因 DMCA 不可用）
+
+### Fixed
+- CI/Release 因外部 CLI 下载 404 / DMCA 导致打包失败
+
 ## [2.6.3] - 2026-07-23
 
 ### Fixed
-- 支持微信 **4.1.11**：内置 wx-cli 版本白名单扩展至 4.1.7–4.1.11，修复「准备数据」因版本不匹配导致的密钥捕获失败
-- 「环境检查未通过」时输出 wx-cli doctor 失败项详情，避免只看到笼统的 SIP 提示
-
-### Changed
-- 默认内置 wx-cli 改为 `93857536-pixel/wx-cli` 的 `v0.7.2-wechat411`（基于 pandorafuture/wx-cli，增加 4.1.9–4.1.11 兼容）
+- 支持微信 **4.1.11**：密钥提取版本白名单扩展至 4.1.7–4.1.11
+- 「环境检查未通过」时输出 wx-cli doctor 失败项详情
 
 ## [2.6.2] - 2026-07-08
 

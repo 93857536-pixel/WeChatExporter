@@ -1,6 +1,6 @@
 # 构建并安装到桌面与开始菜单
 param(
-    [string]$WxCliVersion = "v0.3.0"
+    [string]$WxCliVersion = "vendor"
 )
 
 $ErrorActionPreference = "Stop"
