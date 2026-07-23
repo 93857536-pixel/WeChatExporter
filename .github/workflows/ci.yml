@@ -19,8 +19,15 @@ jobs:
         run: |
           bash scripts/prepare_icon.sh
           ./build_app.sh
-        env:
-          WX_CLI_VERSION: v0.7.2
+
+      - name: Verify bundled wx-cli accepts WeChat 4.1.11 allowlist
+        run: |
+          test -x WeChatExporter.app/Contents/Resources/wx-cli
+          WeChatExporter.app/Contents/Resources/wx-cli --version
+          WeChatExporter.app/Contents/Resources/wx-cli doctor | tee /tmp/doctor.txt
+          grep -q "All checks passed" /tmp/doctor.txt
+          # Allowlist embeds as concatenated literals: ...4.1.104.1.11...
+          strings WeChatExporter.app/Contents/Resources/wx-cli | grep -F '4.1.11' >/dev/null
 
   build-windows:
     name: Build Windows
@@ -32,3 +39,11 @@ jobs:
           dotnet-version: "8.0.x"
       - name: dotnet build
         run: dotnet build windows/WeChatExporter.Windows/WeChatExporter.Windows.csproj -c Release
+      - name: Bundle vendored wx.exe via build.ps1 dry path
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:TEMP "wxe-cli-test"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          ./windows/scripts/bundle_wx_cli.ps1 -DestDir $out
+          if (-not (Test-Path (Join-Path $out "wx.exe"))) { throw "wx.exe missing" }
+          Write-Host "wx.exe OK:" (Get-Item (Join-Path $out "wx.exe")).Length

@@ -7,7 +7,7 @@ using WeChatExporter.Models;
 namespace WeChatExporter.Services;
 
 /// <summary>
-/// 调用内置或系统 wx-cli（jackwener/wx-cli）完成密钥提取、解密与导出。
+/// 调用内置或系统 wx-cli 完成密钥提取、解密与导出。
 /// </summary>
 public sealed class WxCliService
 {
