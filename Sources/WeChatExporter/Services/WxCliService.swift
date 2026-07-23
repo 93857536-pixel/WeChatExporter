@@ -52,9 +52,13 @@ final class WxCliService {
         try await run(["status"])
     }
 
-    func doctorOK() async -> Bool {
-        guard let output = try? await run(["doctor"]) else { return false }
-        return output.contains("All checks passed")
+    func doctorReport() async -> (ok: Bool, output: String) {
+        do {
+            let output = try await run(["doctor"], timeout: 60)
+            return (output.contains("All checks passed"), output)
+        } catch {
+            return (false, error.localizedDescription)
+        }
     }
 
     /// 密钥已保存且解密缓存可用，才适合查询会话列表。
@@ -73,8 +77,15 @@ final class WxCliService {
         tracker.reset()
         progress(tracker.estimated(message: "正在检查运行环境…"))
         log("检查运行环境…")
-        guard await doctorOK() else {
-            throw AppError.decryptFailed("wx-cli 环境检查未通过。请确认 SIP 已关闭且微信已登录。")
+        let doctor = await doctorReport()
+        if !doctor.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            log(doctor.output)
+        }
+        guard doctor.ok else {
+            let detail = Self.summarizeDoctorFailure(doctor.output)
+            throw AppError.decryptFailed(
+                "wx-cli 环境检查未通过。\(detail)请确认：1) SIP 已关闭（csrutil status）；2) 已执行 sudo DevToolsSecurity -enable；3) 当前用户在 _developer 组；4) 微信已登录。完整日志见上方输出。"
+            )
         }
 
         progress(tracker.estimated(message: "正在读取账号状态…"))
@@ -83,11 +94,22 @@ final class WxCliService {
         if needsKey {
             progress(tracker.estimated(message: "正在捕获解密密钥（会重启微信）…"))
             log("正在捕获解密密钥（会重启微信，约 1-2 分钟）…")
-            _ = try await run(["key", "extract", "--timeout", "120"], timeout: nil, log: log, onActivity: { line in
-                if line.contains("Password") || line.contains("PBKDF2") {
-                    progress(tracker.estimated(message: "等待微信登录并捕获密钥…"))
+            do {
+                _ = try await run(["key", "extract", "--timeout", "120"], timeout: nil, log: log, onActivity: { line in
+                    if line.contains("Password") || line.contains("PBKDF2") {
+                        progress(tracker.estimated(message: "等待微信登录并捕获密钥…"))
+                    }
+                })
+            } catch {
+                let message = error.localizedDescription
+                if message.localizedCaseInsensitiveContains("not supported for key extraction")
+                    || message.localizedCaseInsensitiveContains("UnsupportedVersion") {
+                    throw AppError.decryptFailed(
+                        "当前微信版本不受内置 wx-cli 支持（需 4.1.7–4.1.11）。请升级 WeChatExporter 到最新版，或等待适配更新。原始错误：\(message)"
+                    )
                 }
-            })
+                throw error
+            }
         } else {
             log("使用已保存的密钥")
         }
@@ -545,6 +567,16 @@ final class WxCliService {
         guard line.contains("Decrypting") else { return nil }
         let digits = line.split(whereSeparator: { !$0.isNumber })
         return digits.compactMap { Int($0) }.first
+    }
+
+    private static func summarizeDoctorFailure(_ output: String) -> String {
+        let failed = output
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.hasPrefix("✗") || $0.hasPrefix("\u{2717}") || $0.lowercased().contains("failed") }
+        guard !failed.isEmpty else { return "" }
+        let joined = failed.prefix(3).joined(separator: "；")
+        return "失败项：\(joined)。"
     }
 
     private static func cleanDisplayName(_ raw: String, username: String) -> String {

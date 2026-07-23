@@ -7,9 +7,10 @@ APP_DIR="$ROOT/${APP_NAME}.app"
 BINARY="$ROOT/.build/release/WeChatExporter"
 ICON_SRC="$ROOT/assets/AppIcon.icns"
 ICON_PNG="$ROOT/assets/AppIcon.png"
-WX_CLI_VERSION="${WX_CLI_VERSION:-v0.7.2}"
-APP_VERSION="${APP_VERSION:-2.6.2}"
-APP_BUILD="${APP_BUILD:-15}"
+WX_CLI_VERSION="${WX_CLI_VERSION:-v0.7.2-wechat411}"
+WX_CLI_REPO="${WX_CLI_REPO:-93857536-pixel/wx-cli}"
+APP_VERSION="${APP_VERSION:-2.6.3}"
+APP_BUILD="${APP_BUILD:-16}"
 
 echo "编译原生 macOS 应用…"
 cd "$ROOT"
@@ -20,7 +21,8 @@ cp "$BINARY" "$APP_DIR/Contents/MacOS/$APP_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$APP_NAME"
 
 echo "打包内置 wx-cli ${WX_CLI_VERSION}…"
-WX_CLI_VERSION="$WX_CLI_VERSION" bash "$ROOT/scripts/bundle_wx_cli.sh" "$APP_DIR/Contents/Resources"
+WX_CLI_VERSION="$WX_CLI_VERSION" WX_CLI_REPO="$WX_CLI_REPO" \
+  bash "$ROOT/scripts/bundle_wx_cli.sh" "$APP_DIR/Contents/Resources"
 chmod +x "$APP_DIR/Contents/Resources/wx-cli"
 
 bash "$ROOT/scripts/prepare_icon.sh"
