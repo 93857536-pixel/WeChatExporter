@@ -45,6 +45,24 @@ public partial class MainWindow : Window
     private async void Export_Click(object sender, RoutedEventArgs e)
         => await _viewModel.ExportSelectedAsync();
 
+    private async void Preview_Click(object sender, RoutedEventArgs e)
+        => await _viewModel.PreviewSelectedAsync();
+
+    private async void RetryFailed_Click(object sender, RoutedEventArgs e)
+        => await _viewModel.RetryFailedAsync();
+
+    private async void EnvironmentCheck_Click(object sender, RoutedEventArgs e)
+        => await _viewModel.EnvironmentCheckAsync();
+
+    private void ToggleFavorite_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ContactItem item })
+        {
+            _viewModel.ToggleFavorite(item);
+            e.Handled = true;
+        }
+    }
+
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         var win = new SettingsWindow(_viewModel) { Owner = this };

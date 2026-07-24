@@ -29,27 +29,52 @@ public partial class SettingsWindow : Window
 
         StyleHtml.IsChecked = _settings.ExportStyle == ExportStyle.SingleHtml;
         StyleFolder.IsChecked = _settings.ExportStyle == ExportStyle.FolderBundle;
+        StyleMarkdown.IsChecked = _settings.ExportStyle == ExportStyle.Markdown;
+        StylePdf.IsChecked = _settings.ExportStyle == ExportStyle.Pdf;
+
+        RangeAll.IsChecked = _settings.DateRangePreset == DateRangePreset.All;
+        Range7.IsChecked = _settings.DateRangePreset == DateRangePreset.Last7Days;
+        Range30.IsChecked = _settings.DateRangePreset == DateRangePreset.Last30Days;
+        Range90.IsChecked = _settings.DateRangePreset == DateRangePreset.Last90Days;
+        Range365.IsChecked = _settings.DateRangePreset == DateRangePreset.Last365Days;
+        RangeCustom.IsChecked = _settings.DateRangePreset == DateRangePreset.Custom;
+        CustomSinceBox.Text = _settings.CustomSince.ToString("yyyy-MM-dd");
+        CustomUntilBox.Text = _settings.CustomUntil.ToString("yyyy-MM-dd");
+
+        SetTypeChecks(_settings.EnabledMessageTypes);
 
         IncludeMediaCheck.IsChecked = _settings.IncludeMedia;
         IncludeStickerCheck.IsChecked = _settings.IncludeStickerGallery;
         FolderCsvCheck.IsChecked = _settings.FolderIncludeCsv;
         FolderJsonCheck.IsChecked = _settings.FolderIncludeJson;
+        IncrementalCheck.IsChecked = _settings.IncrementalExport;
+        MapNicknamesCheck.IsChecked = _settings.MapGroupNicknames;
+        SpeechToTextCheck.IsChecked = _settings.EnableSpeechToText;
         OpenAfterExportCheck.IsChecked = _settings.OpenFolderAfterExport;
         ExportPathBox.Text = _settings.ExportPath;
 
         RefreshModePanels();
+        RefreshRangePanel();
         CreditText.Text = AppSettings.CreditLine;
     }
 
     private void RefreshModePanels()
     {
         var folder = StyleFolder.IsChecked == true;
-        HtmlOptionsPanel.Visibility = folder ? Visibility.Collapsed : Visibility.Visible;
+        var html = StyleHtml.IsChecked == true;
+        HtmlOptionsPanel.Visibility = html ? Visibility.Visible : Visibility.Collapsed;
         FolderOptionsPanel.Visibility = folder ? Visibility.Visible : Visibility.Collapsed;
-        StyleDetailText.Text = ExportStyleInfo.Detail(folder ? ExportStyle.FolderBundle : ExportStyle.SingleHtml);
+        StyleDetailText.Text = ExportStyleInfo.Detail(SelectedStyle());
     }
 
     private void Style_Changed(object sender, RoutedEventArgs e) => RefreshModePanels();
+
+    private void Range_Changed(object sender, RoutedEventArgs e) => RefreshRangePanel();
+
+    private void RefreshRangePanel()
+    {
+        CustomRangePanel.Visibility = RangeCustom.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void ChooseFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -69,11 +94,20 @@ public partial class SettingsWindow : Window
         else if (AppearanceDark.IsChecked == true) _settings.Appearance = AppearanceMode.Dark;
         else _settings.Appearance = AppearanceMode.System;
 
-        _settings.ExportStyle = StyleFolder.IsChecked == true ? ExportStyle.FolderBundle : ExportStyle.SingleHtml;
+        _settings.ExportStyle = SelectedStyle();
+        _settings.DateRangePreset = SelectedRange();
+        if (DateTime.TryParse(CustomSinceBox.Text.Trim(), out var since))
+            _settings.CustomSince = since.Date;
+        if (DateTime.TryParse(CustomUntilBox.Text.Trim(), out var until))
+            _settings.CustomUntil = until.Date;
+        _settings.EnabledMessageTypes = SelectedTypeIds();
         _settings.IncludeMedia = IncludeMediaCheck.IsChecked == true;
         _settings.IncludeStickerGallery = IncludeStickerCheck.IsChecked == true;
         _settings.FolderIncludeCsv = FolderCsvCheck.IsChecked == true;
         _settings.FolderIncludeJson = FolderJsonCheck.IsChecked == true;
+        _settings.IncrementalExport = IncrementalCheck.IsChecked == true;
+        _settings.MapGroupNicknames = MapNicknamesCheck.IsChecked == true;
+        _settings.EnableSpeechToText = SpeechToTextCheck.IsChecked == true;
         _settings.OpenFolderAfterExport = OpenAfterExportCheck.IsChecked == true;
         _settings.ExportPath = string.IsNullOrWhiteSpace(ExportPathBox.Text)
             ? _settings.ExportPath
@@ -90,6 +124,56 @@ public partial class SettingsWindow : Window
     {
         DialogResult = false;
         Close();
+    }
+
+    private ExportStyle SelectedStyle()
+    {
+        if (StyleFolder.IsChecked == true) return ExportStyle.FolderBundle;
+        if (StyleMarkdown.IsChecked == true) return ExportStyle.Markdown;
+        if (StylePdf.IsChecked == true) return ExportStyle.Pdf;
+        return ExportStyle.SingleHtml;
+    }
+
+    private DateRangePreset SelectedRange()
+    {
+        if (Range7.IsChecked == true) return DateRangePreset.Last7Days;
+        if (Range30.IsChecked == true) return DateRangePreset.Last30Days;
+        if (Range90.IsChecked == true) return DateRangePreset.Last90Days;
+        if (Range365.IsChecked == true) return DateRangePreset.Last365Days;
+        if (RangeCustom.IsChecked == true) return DateRangePreset.Custom;
+        return DateRangePreset.All;
+    }
+
+    private void SetTypeChecks(HashSet<string> types)
+    {
+        bool On(MessageTypeFilter filter) => types.Count == 0 || types.Contains(MessageTypeFilterInfo.Id(filter));
+        TypeTextCheck.IsChecked = On(MessageTypeFilter.Text);
+        TypeImageCheck.IsChecked = On(MessageTypeFilter.Image);
+        TypeVoiceCheck.IsChecked = On(MessageTypeFilter.Voice);
+        TypeVideoCheck.IsChecked = On(MessageTypeFilter.Video);
+        TypeEmojiCheck.IsChecked = On(MessageTypeFilter.Emoji);
+        TypeAppCheck.IsChecked = On(MessageTypeFilter.App);
+        TypeSystemCheck.IsChecked = On(MessageTypeFilter.System);
+    }
+
+    private HashSet<string> SelectedTypeIds()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddIf(bool? selected, MessageTypeFilter filter)
+        {
+            if (selected == true) set.Add(MessageTypeFilterInfo.Id(filter));
+        }
+
+        AddIf(TypeTextCheck.IsChecked, MessageTypeFilter.Text);
+        AddIf(TypeImageCheck.IsChecked, MessageTypeFilter.Image);
+        AddIf(TypeVoiceCheck.IsChecked, MessageTypeFilter.Voice);
+        AddIf(TypeVideoCheck.IsChecked, MessageTypeFilter.Video);
+        AddIf(TypeEmojiCheck.IsChecked, MessageTypeFilter.Emoji);
+        AddIf(TypeAppCheck.IsChecked, MessageTypeFilter.App);
+        AddIf(TypeSystemCheck.IsChecked, MessageTypeFilter.System);
+        return set.Count == 0
+            ? MessageTypeFilterInfo.AllIds().ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : set;
     }
 }
 

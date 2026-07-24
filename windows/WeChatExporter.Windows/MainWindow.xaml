@@ -42,16 +42,22 @@
                 </StackPanel>
             </Border>
 
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                 <Button Content="设置" Padding="10,6" Margin="0,0,6,0" Click="Settings_Click"/>
                 <Button Content="准备数据" Padding="10,6" Margin="0,0,6,0"
                         Click="PrepareData_Click" IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}"/>
                 <Button Content="刷新" Padding="10,6" Margin="0,0,6,0"
                         Click="Refresh_Click" IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}"/>
-                <Button Content="导出选中" Padding="10,6"
+                <Button Content="导出预览" Padding="10,6" Margin="0,0,6,0"
+                        Click="Preview_Click" IsEnabled="{Binding CanExport}"/>
+                <Button Content="导出选中" Padding="10,6" Margin="0,0,6,0"
                         Background="{StaticResource AccentBrush}" Foreground="White"
                         Click="Export_Click" IsEnabled="{Binding CanExport}"/>
-            </StackPanel>
+                <Button Content="重试失败" Padding="10,6" Margin="0,0,6,0"
+                        Click="RetryFailed_Click" IsEnabled="{Binding CanRetryFailed}"/>
+                <Button Content="环境检测" Padding="10,6"
+                        Click="EnvironmentCheck_Click" IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}"/>
+            </WrapPanel>
 
             <TextBox DockPanel.Dock="Top" Margin="0,0,0,8"
                      Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
@@ -61,6 +67,9 @@
 
             <TextBlock DockPanel.Dock="Top" Text="{Binding FilteredCountText}"
                        Foreground="{DynamicResource AppMutedBrush}" Margin="0,0,0,6"/>
+            <CheckBox DockPanel.Dock="Top" Content="只看收藏" Margin="0,0,0,8"
+                      IsChecked="{Binding ShowFavoritesOnly, Mode=TwoWay}"
+                      Foreground="{DynamicResource AppTextBrush}"/>
 
             <ListBox x:Name="ContactList"
                      ItemsSource="{Binding ContactsView}"
@@ -72,15 +81,22 @@
                     <DataTemplate>
                         <Grid Margin="0,4">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <StackPanel>
+                            <Button Content="{Binding FavoriteGlyph}" Width="28" Height="28"
+                                    Padding="0" Margin="0,0,8,0"
+                                    Click="ToggleFavorite_Click"
+                                    Foreground="{StaticResource AccentBrush}"
+                                    Background="Transparent"
+                                    BorderThickness="0"/>
+                            <StackPanel Grid.Column="1">
                                 <TextBlock Text="{Binding DisplayName}" FontWeight="Medium"
                                            Foreground="{DynamicResource AppTextBrush}"/>
                                 <TextBlock Text="{Binding Subtitle}" Foreground="{DynamicResource AppMutedBrush}" FontSize="11"/>
                             </StackPanel>
-                            <Border Grid.Column="1" Background="{StaticResource AccentSoftBrush}"
+                            <Border Grid.Column="2" Background="{StaticResource AccentSoftBrush}"
                                     CornerRadius="10" Padding="8,3" VerticalAlignment="Center">
                                 <TextBlock Text="{Binding KindLabel}" FontSize="10"/>
                             </Border>
