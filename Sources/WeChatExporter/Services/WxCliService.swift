@@ -123,13 +123,25 @@ final class WxCliService {
             }
         }
         defer { decryptTick.cancel() }
-        _ = try await run(["decrypt"], timeout: nil, log: log, onActivity: { line in
-            if let count = Self.parseDecryptTotal(from: line) {
-                progress(tracker.decryptWarmup(totalDBs: count, message: "正在解密 \(count) 个数据库…"))
-            } else if line.contains("decrypted") || line.contains("Cache:") {
-                progress(tracker.decryptWarmup(totalDBs: 1, message: "数据库解密进行中…"))
-            }
-        })
+        do {
+            // 已有缓存时走增量解密；失败则回退全量。
+            _ = try await run(["decrypt", "--incremental"], timeout: nil, log: log, onActivity: { line in
+                if let count = Self.parseDecryptTotal(from: line) {
+                    progress(tracker.decryptWarmup(totalDBs: count, message: "正在解密 \(count) 个数据库…"))
+                } else if line.contains("decrypted") || line.contains("Cache:") {
+                    progress(tracker.decryptWarmup(totalDBs: 1, message: "数据库解密进行中…"))
+                }
+            })
+        } catch {
+            log("增量解密未完成，改为全量解密…")
+            _ = try await run(["decrypt"], timeout: nil, log: log, onActivity: { line in
+                if let count = Self.parseDecryptTotal(from: line) {
+                    progress(tracker.decryptWarmup(totalDBs: count, message: "正在解密 \(count) 个数据库…"))
+                } else if line.contains("decrypted") || line.contains("Cache:") {
+                    progress(tracker.decryptWarmup(totalDBs: 1, message: "数据库解密进行中…"))
+                }
+            })
+        }
         progress(tracker.complete(message: "数据库解密完成"))
         log("数据库解密完成")
     }
@@ -212,14 +224,53 @@ final class WxCliService {
         return sorted
     }
 
-    func export(contact: ContactItem, outputDir: URL, includeMedia: Bool = false, log: @escaping (String) -> Void) async throws -> Int {
+    struct ExportOptions {
+        var includeMedia: Bool = false
+        var sinceUnix: Int? = nil
+        var untilUnix: Int? = nil
+        var typeFilters: Set<MessageTypeFilter> = []
+        var mapGroupNicknames: Bool = true
+        var enableSpeechToText: Bool = false
+        var progress: ((Double, String) -> Void)? = nil
+    }
+
+    func export(
+        contact: ContactItem,
+        outputDir: URL,
+        includeMedia: Bool = false,
+        log: @escaping (String) -> Void
+    ) async throws -> Int {
+        try await export(
+            contact: contact,
+            outputDir: outputDir,
+            options: ExportOptions(includeMedia: includeMedia),
+            log: log
+        )
+    }
+
+    func export(
+        contact: ContactItem,
+        outputDir: URL,
+        options: ExportOptions,
+        log: @escaping (String) -> Void
+    ) async throws -> Int {
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         // 必须优先用唯一 wxid / chatroom id，避免显示名模糊匹配到其他人的会话。
         let query = Self.exportQuery(for: contact)
+        let includeMedia = options.includeMedia
         log("导出：\(contact.displayName) [\(query)]\(includeMedia ? "（含媒体）" : "")")
+        options.progress?(0.05, "拉取消息…")
 
         var txtArgs = ["export", query, "--output", outputDir.path, "--format", "txt", "--all"]
         var jsonArgs = ["export", query, "--output", outputDir.path, "--format", "json", "--all"]
+        if let since = options.sinceUnix {
+            txtArgs += ["--since", "\(since)"]
+            jsonArgs += ["--since", "\(since)"]
+        }
+        if let until = options.untilUnix {
+            txtArgs += ["--until", "\(until)"]
+            jsonArgs += ["--until", "\(until)"]
+        }
         if !includeMedia {
             txtArgs.append("--no-media")
             jsonArgs.append("--no-media")
@@ -230,13 +281,42 @@ final class WxCliService {
 
         let exportTimeout: TimeInterval? = includeMedia ? nil : 600
         _ = try await run(txtArgs, timeout: exportTimeout, log: log)
+        options.progress?(0.35, "拉取 JSON…")
         _ = try await run(jsonArgs, timeout: exportTimeout, log: log)
 
         Self.normalizeExportArtifacts(in: outputDir, log: log)
+        let chatJSON = outputDir.appendingPathComponent("chat.json")
+
+        options.progress?(0.45, "应用过滤…")
+        let filter = ChatJsonProcessor.FilterOptions(
+            sinceUnix: options.sinceUnix,
+            untilUnix: options.untilUnix,
+            enabledTypes: options.typeFilters
+        )
+        _ = try ChatJsonProcessor.applyFilters(to: chatJSON, options: filter, log: log)
+
+        if options.mapGroupNicknames, contact.id.contains("@chatroom") || contact.kind == .group {
+            options.progress?(0.55, "映射群昵称…")
+            if let map = try? await loadGroupMembers(chatroomID: contact.id, log: log), !map.isEmpty {
+                try ChatJsonProcessor.applyNicknameMap(to: chatJSON, map: map, log: log)
+            }
+        }
+
         if includeMedia {
+            options.progress?(0.65, "导出媒体…")
             _ = await EmojiExporter.exportEmojis(in: outputDir, log: log)
             _ = await ImageExporter.exportImages(in: outputDir, log: log)
             Self.normalizeExportArtifacts(in: outputDir, log: log)
+        }
+
+        if options.enableSpeechToText {
+            options.progress?(0.8, "语音转写…")
+            let transcripts = await SpeechToTextService.transcribeVoiceFiles(
+                in: outputDir,
+                enabled: true,
+                log: log
+            )
+            try? ChatJsonProcessor.injectVoiceTranscripts(in: chatJSON, transcripts: transcripts, log: log)
         }
 
         if let talker = Self.exportedTalker(in: outputDir),
@@ -247,6 +327,7 @@ final class WxCliService {
             )
         }
 
+        options.progress?(0.95, "校验消息…")
         let count = Self.countExportedMessages(in: outputDir)
         guard count > 0 else {
             throw AppError.exportFailed(
@@ -254,7 +335,104 @@ final class WxCliService {
             )
         }
         log("共导出 \(count) 条消息")
+        options.progress?(1.0, "完成")
         return count
+    }
+
+    /// 群成员 wxid → 显示名。
+    func loadGroupMembers(chatroomID: String, log: @escaping (String) -> Void) async throws -> [String: String] {
+        let id = chatroomID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return [:] }
+        // chatrooms 输出 JSON，再按 username 过滤。
+        let output: String
+        do {
+            output = try await run(
+                ["chatrooms", "--format", "json", "--limit", "5000"],
+                timeout: 120,
+                log: log
+            )
+        } catch {
+            log("群成员查询失败：\(error.localizedDescription)")
+            return [:]
+        }
+        return Self.parseChatroomMembers(from: output, chatroomID: id)
+    }
+
+    static func parseChatroomMembers(from output: String, chatroomID: String) -> [String: String] {
+        guard let data = output.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) else { return [:] }
+
+        var rooms: [[String: Any]] = []
+        if let array = root as? [[String: Any]] {
+            rooms = array
+        } else if let dict = root as? [String: Any] {
+            for key in ["items", "results", "chatrooms"] {
+                if let items = dict[key] as? [[String: Any]] {
+                    rooms = items
+                    break
+                }
+            }
+        }
+
+        guard let room = rooms.first(where: {
+            let u = ($0["username"] as? String) ?? ($0["id"] as? String) ?? ($0["chatroom"] as? String) ?? ""
+            return u.caseInsensitiveCompare(chatroomID) == .orderedSame
+        }) else { return [:] }
+
+        var map: [String: String] = [:]
+        let members = (room["members"] as? [[String: Any]]) ?? []
+        for member in members {
+            let wxid = (member["username"] as? String)
+                ?? (member["user_name"] as? String)
+                ?? (member["wxid"] as? String)
+                ?? (member["id"] as? String)
+                ?? ""
+            guard !wxid.isEmpty else { continue }
+            let name = (member["display_name"] as? String)
+                ?? (member["remark"] as? String)
+                ?? (member["nick_name"] as? String)
+                ?? (member["nickname"] as? String)
+                ?? (member["alias"] as? String)
+                ?? wxid
+            map[wxid] = name
+            map[wxid.lowercased()] = name
+        }
+        return map
+    }
+
+    /// 一键环境检测（doctor 全文）。
+    func environmentCheck(log: @escaping (String) -> Void) async -> (ok: Bool, report: String) {
+        let doctor = await doctorReport()
+        if !doctor.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            log(doctor.output)
+        }
+        var lines: [String] = []
+        lines.append(doctor.ok ? "✓ doctor 通过" : "✗ doctor 未通过")
+        lines.append(isBundled ? "✓ 使用内置 wx-cli" : "• 使用系统 wx-cli")
+        let ffmpeg = Self.which("ffmpeg") != nil
+        lines.append(ffmpeg ? "✓ 已检测到 ffmpeg（音视频转码更稳）" : "• 未检测到 ffmpeg（可选安装以改善转码）")
+        let prepared = await isPreparedForQuery()
+        lines.append(prepared ? "✓ 数据已解密可查询" : "• 尚未准备数据 / 未解密")
+        let report = (doctor.output.isEmpty ? "" : doctor.output + "\n\n") + lines.joined(separator: "\n")
+        return (doctor.ok && prepared, report)
+    }
+
+    private static func which(_ name: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = [name]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (process.terminationStatus == 0 && !(path ?? "").isEmpty) ? path : nil
+        } catch {
+            return nil
+        }
     }
 
     /// 导出查询优先使用稳定唯一的 username（wxid / @chatroom），避免重名导致串会话。

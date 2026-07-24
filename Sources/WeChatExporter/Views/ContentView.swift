@@ -41,16 +41,40 @@ struct ContentView: View {
                 .padding(16)
 
             List(selection: $model.selectedIDs) {
-                Section {
-                    ForEach(model.filteredContacts) { contact in
-                        ContactRow(contact: contact)
+                if !model.favoriteContacts.isEmpty {
+                    Section {
+                        ForEach(model.favoriteContacts) { contact in
+                            ContactRow(
+                                contact: contact,
+                                isFavorite: true,
+                                onToggleFavorite: { model.toggleFavorite(contact.id) }
+                            )
                             .tag(contact.id)
+                        }
+                    } header: {
+                        HStack {
+                            Text("收藏")
+                            Spacer()
+                            Text("\(model.favoriteContacts.count)")
+                                .foregroundStyle(AppTheme.subtleText)
+                        }
+                    }
+                }
+
+                Section {
+                    ForEach(model.otherContacts) { contact in
+                        ContactRow(
+                            contact: contact,
+                            isFavorite: settings.favoriteIDs.contains(contact.id),
+                            onToggleFavorite: { model.toggleFavorite(contact.id) }
+                        )
+                        .tag(contact.id)
                     }
                 } header: {
                     HStack {
                         Text("会话")
                         Spacer()
-                        Text("\(model.filteredContacts.count)")
+                        Text("\(model.otherContacts.count)")
                             .foregroundStyle(AppTheme.subtleText)
                     }
                 }
@@ -74,7 +98,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("导出工具")
                         .font(.title3.weight(.semibold))
-                    Text("当前：\(settings.exportStyle.title)")
+                    Text("当前：\(settings.exportStyle.title) · \(settings.dateRangePreset.title)")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.subtleText)
                 }
@@ -133,6 +157,20 @@ struct ContentView: View {
             .disabled(model.isBusy)
 
             Button {
+                Task { await model.previewSelected() }
+            } label: {
+                Label("预览", systemImage: "eye")
+            }
+            .disabled(model.isBusy || model.selectedIDs.isEmpty)
+
+            Button {
+                Task { await model.retryFailedExports() }
+            } label: {
+                Label("重试失败", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(!model.canRetryFailed)
+
+            Button {
                 Task { await model.exportSelected() }
             } label: {
                 Label("导出选中", systemImage: "square.and.arrow.down.fill")
@@ -152,6 +190,10 @@ struct ContentView: View {
                     Label("当前导出配置", systemImage: "slider.horizontal.3")
                         .font(.headline)
                     Text("方式：\(settings.exportStyle.title)")
+                    Text("时间：\(settings.dateRangePreset.title)")
+                    Text("增量续导：\(settings.incrementalExport ? "开" : "关") · 群昵称：\(settings.mapGroupNicknames ? "开" : "关") · 语音转写：\(settings.enableSpeechToText ? "开" : "关")")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
                     Text(settings.exportStyle.detail)
                         .font(.caption)
                         .foregroundStyle(AppTheme.subtleText)
@@ -159,8 +201,13 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(AppTheme.subtleText)
                         .lineLimit(2)
-                    Button("打开设置…") { model.showSettings = true }
-                        .buttonStyle(.bordered)
+                    HStack {
+                        Button("打开设置…") { model.showSettings = true }
+                        Button("环境检测") {
+                            Task { await model.runEnvironmentCheck() }
+                        }
+                    }
+                    .buttonStyle(.bordered)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(4)
@@ -171,9 +218,9 @@ struct ContentView: View {
                     Label("使用说明", systemImage: "info.circle.fill")
                         .font(.headline)
                     Text("1. 首次使用点击「准备数据」（会重启微信）")
-                    Text("2. 在左侧列表中选择一个或多个联系人")
-                    Text("3. 在「设置」中选择导出方式与主题等选项")
-                    Text("4. 点击「导出选中」")
+                    Text("2. 收藏常用联系人；搜索并多选会话")
+                    Text("3. 在「设置」配置时间范围、消息类型、输出格式")
+                    Text("4. 可先「预览」再「导出选中」；失败可「重试失败」")
                         .foregroundStyle(AppTheme.subtleText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -241,6 +288,8 @@ struct ContentView: View {
 
 struct ContactRow: View {
     let contact: ContactItem
+    var isFavorite: Bool = false
+    var onToggleFavorite: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -259,6 +308,15 @@ struct ContactRow: View {
             }
 
             Spacer(minLength: 8)
+
+            Button {
+                onToggleFavorite?()
+            } label: {
+                Image(systemName: isFavorite ? "star.fill" : "star")
+                    .foregroundStyle(isFavorite ? .orange : AppTheme.subtleText)
+            }
+            .buttonStyle(.plain)
+            .help(isFavorite ? "取消收藏" : "收藏")
 
             Text(contact.kind.rawValue)
                 .font(.caption2.weight(.semibold))

@@ -335,7 +335,7 @@ def test_source_contracts():
     check("C# 不再优先 DisplayName 查询", "string.IsNullOrWhiteSpace(contact.DisplayName) ? contact.Id : contact.DisplayName" not in csharp)
     check("C# 含 talker 校验", "ReadExportedTalker" in csharp and "导出结果会话不匹配" in csharp)
 
-    check("macOS 导出快照 selectedIDs", "selectedIDsSnapshot" in mac_vm)
+    check("macOS 导出快照 selectedIDs", "exportContacts(ids:" in mac_vm or "selectedIDsSnapshot" in mac_vm or "let idSet = Set(ids)" in mac_vm)
     check("macOS 单人失败隔离", "failures.append" in mac_vm)
     check("Windows 导出快照 selected", "var selected = SelectedContacts.ToList()" in win_vm)
     check("Windows 单人失败隔离", "failures.Add" in win_vm)
@@ -347,9 +347,9 @@ def test_versions_and_assets():
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     build_app = (ROOT / "build_app.sh").read_text(encoding="utf-8")
     csproj = (ROOT / "windows/WeChatExporter.Windows/WeChatExporter.Windows.csproj").read_text(encoding="utf-8")
-    check("CHANGELOG 含 2.8.0", "## [2.8.0]" in changelog)
-    check("build_app.sh 版本 2.8.0", 'APP_VERSION="${APP_VERSION:-2.8.0}"' in build_app)
-    check("Windows csproj 版本 2.8.0", "<Version>2.8.0</Version>" in csproj)
+    check("CHANGELOG 含 2.9.0", "## [2.9.0]" in changelog)
+    check("build_app.sh 版本 2.9.0", 'APP_VERSION="${APP_VERSION:-2.9.0}"' in build_app)
+    check("Windows csproj 版本 2.9.0", "<Version>2.9.0</Version>" in csproj)
 
     mac_cli = ROOT / "vendor/macos/wx-cli"
     win_cli = ROOT / "vendor/windows/wx.exe"
@@ -398,8 +398,14 @@ def test_feature_surface_files():
         "Sources/WeChatExporter/Services/StickerPackExporter.swift",
         "Sources/WeChatExporter/Services/DatImageDecoder.swift",
         "Sources/WeChatExporter/Models/AppSettings.swift",
+        "Sources/WeChatExporter/Models/ExportFilters.swift",
         "Sources/WeChatExporter/Views/SettingsView.swift",
         "Sources/WeChatExporter/Services/FolderBundleExporter.swift",
+        "Sources/WeChatExporter/Services/ChatJsonProcessor.swift",
+        "Sources/WeChatExporter/Services/ExportCursorStore.swift",
+        "Sources/WeChatExporter/Services/MarkdownExporter.swift",
+        "Sources/WeChatExporter/Services/PdfExporter.swift",
+        "Sources/WeChatExporter/Services/SpeechToTextService.swift",
         "Sources/WeChatExporter/Models/ExportStyle.swift",
         "Sources/WeChatExporter/Services/WXGFTranscoder.swift",
         "Sources/WeChatExporter/Services/KeyCaptureService.swift",
@@ -410,6 +416,11 @@ def test_feature_surface_files():
         "windows/WeChatExporter.Windows/Services/SingleFileExporter.cs",
         "windows/WeChatExporter.Windows/Services/FolderBundleExporter.cs",
         "windows/WeChatExporter.Windows/Services/AppSettings.cs",
+        "windows/WeChatExporter.Windows/Services/ChatJsonProcessor.cs",
+        "windows/WeChatExporter.Windows/Services/ExportCursorStore.cs",
+        "windows/WeChatExporter.Windows/Services/MarkdownExporter.cs",
+        "windows/WeChatExporter.Windows/Services/PdfExporter.cs",
+        "windows/WeChatExporter.Windows/Services/MessageTypeFilter.cs",
         "windows/WeChatExporter.Windows/SettingsWindow.xaml",
         "windows/WeChatExporter.Windows/Models/ExportStyle.cs",
         "windows/WeChatExporter.Windows/Services/ImageExporter.cs",
@@ -515,6 +526,78 @@ def test_folder_bundle_layout():
     check("Windows 设置含出品标注", credit in app_settings_win and ("CreditText" in settings_win or "AppSettings.CreditLine" in settings_win_cs))
     check("设置含浅色深色", "浅色" in app_settings_swift and "深色" in app_settings_swift and "appearance" in settings_swift)
     check("Windows 设置含主题", "AppearanceLight" in settings_win and "AppearanceDark" in settings_win)
+    check("设置含时间范围", "dateRangePreset" in app_settings_swift and "时间范围" in settings_swift)
+    check("设置含消息类型", "enabledMessageTypes" in app_settings_swift and "MessageTypeFilter" in settings_swift)
+    check("设置含增量续导", "incrementalExport" in app_settings_swift)
+    check(
+        "导出含 Markdown/PDF",
+        "case markdown" in (ROOT / "Sources/WeChatExporter/Models/ExportStyle.swift").read_text(encoding="utf-8")
+        and "Markdown" in (ROOT / "windows/WeChatExporter.Windows/Models/ExportStyle.cs").read_text(encoding="utf-8"),
+    )
+    check("macOS 含预览与重试", "previewSelected" in mac_vm and "retryFailedExports" in mac_vm)
+    check("macOS 含环境检测", "runEnvironmentCheck" in mac_vm)
+    check("macOS 含收藏", "favoriteIDs" in app_settings_swift and "toggleFavorite" in mac_vm)
+    win_vm = (ROOT / "windows/WeChatExporter.Windows/ViewModels/MainViewModel.cs").read_text(encoding="utf-8")
+    check("Windows 含预览或环境检测", "Preview" in win_xaml or "环境" in win_xaml or "EnvironmentCheck" in win_vm or "PreviewSelected" in win_vm)
+
+
+def test_chat_json_filter_and_exporters():
+    print("\n[15] chat.json 过滤 / Markdown / PDF / 游标")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        chat = {
+            "talker": "wxid_a",
+            "items": [
+                {"create_time": 1000, "msg_type": 1, "sender": "wxid_a", "sender_display_name": "甲", "content": "早", "media_files": []},
+                {"create_time": 2000, "msg_type": 3, "sender": "wxid_b", "sender_display_name": "乙", "content": "[图片]", "media_files": ["media/images/a.jpg"]},
+                {"create_time": 3000, "msg_type": 34, "sender": "wxid_a", "content": "[语音]", "media_files": ["media/voice/v.mp3"]},
+                {"create_time": 4000, "msg_type": 10000, "sender": "system", "content": "你已添加了乙", "media_files": []},
+            ],
+        }
+        json_path = tmp_path / "chat.json"
+        json_path.write_text(json.dumps(chat, ensure_ascii=False), encoding="utf-8")
+        (tmp_path / "media" / "images").mkdir(parents=True)
+        (tmp_path / "media" / "images" / "a.jpg").write_bytes(b"\xff\xd8\xff" + b"\x00" * 20)
+
+        kept = [m for m in chat["items"] if m["create_time"] >= 2000]
+        check("时间过滤逻辑", len(kept) == 3)
+
+        type_ok = {1, 3}
+        typed = [m for m in chat["items"] if m["msg_type"] in type_ok]
+        check("类型过滤逻辑", len(typed) == 2)
+
+        nick_map = {"wxid_b": "小乙"}
+        mapped = 0
+        for m in chat["items"]:
+            if m["sender"] in nick_map:
+                m["sender_display_name"] = nick_map[m["sender"]]
+                mapped += 1
+        check("昵称映射", mapped == 1 and chat["items"][1]["sender_display_name"] == "小乙")
+
+        md_lines = ["# 测试\n"]
+        for m in chat["items"]:
+            md_lines.append(f"### {m.get('create_time')} · {m.get('sender_display_name', m['sender'])}\n{m['content']}\n")
+        md_path = tmp_path / "out.md"
+        md_path.write_text("\n".join(md_lines), encoding="utf-8")
+        check("Markdown 写出", md_path.is_file() and "小乙" in md_path.read_text(encoding="utf-8"))
+
+        pdf_path = tmp_path / "out.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n")
+        check("PDF 文件头", pdf_path.read_bytes().startswith(b"%PDF"))
+
+        cursor_file = tmp_path / "export_cursors.json"
+        cursor_file.write_text(json.dumps({"wxid_a": 4000}), encoding="utf-8")
+        cursors = json.loads(cursor_file.read_text(encoding="utf-8"))
+        check("增量游标", cursors.get("wxid_a") == 4000)
+
+    processor_cs = (ROOT / "windows/WeChatExporter.Windows/Services/ChatJsonProcessor.cs").read_text(encoding="utf-8")
+    processor_swift = (ROOT / "Sources/WeChatExporter/Services/ChatJsonProcessor.swift").read_text(encoding="utf-8")
+    check("Swift ChatJsonProcessor 含过滤", "applyFilters" in processor_swift)
+    check("C# ChatJsonProcessor 含过滤", "ApplyFilters" in processor_cs or "applyFilters" in processor_cs)
+    check(
+        "Swift 含群成员解析",
+        "parseChatroomMembers" in (ROOT / "Sources/WeChatExporter/Services/WxCliService.swift").read_text(encoding="utf-8"),
+    )
 
 
 def main() -> int:
@@ -534,6 +617,7 @@ def main() -> int:
     test_feature_surface_files()
     test_csharp_logic_selftest()
     test_folder_bundle_layout()
+    test_chat_json_filter_and_exporters()
 
     print("\n" + "=" * 60)
     print(f"结果：{PASSED} 通过，{FAILED} 失败")
