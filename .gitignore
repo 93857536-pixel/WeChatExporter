@@ -12,6 +12,8 @@ windows/**/bin/
 windows/**/obj/
 windows/publish/
 windows/dist/
+scripts/**/bin/
+scripts/**/obj/
 
 # Xcode
 DerivedData/
