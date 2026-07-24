@@ -10,6 +10,10 @@ All notable changes to this project are documented in this file.
 - 0 条消息时给出可操作的失败提示；多选导出时单人失败不再中断整批，成功/失败分开汇总
 - Windows：导出进行中忽略列表选中变化，避免弹窗抢焦点后再次导出跳到其他会话
 
+### Added
+- 离线功能回归测试：`python3 scripts/test_all_features.py`（导出查询、会话校验、HTML 打包、图片嗅探、源码契约、vendor 资源）
+- CI 增加 Offline feature tests 任务
+
 ## [2.6.4] - 2026-07-23
 
 ### Changed
