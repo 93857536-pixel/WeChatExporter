@@ -17,6 +17,7 @@ final class AppViewModel: ObservableObject {
     @Published var statusText = "就绪"
     @Published var isDataReady = false
     @Published var includeMedia = false
+    @Published var exportStyle: ExportStyle = .singleHTML
     @Published var alertMessage: String?
     @Published var showAlert = false
     @Published var operationProgress: Double?
@@ -286,13 +287,16 @@ final class AppViewModel: ObservableObject {
         let base = URL(fileURLWithPath: exportPath.expandingTildeInPath, isDirectory: true)
         var summary: [String] = []
         var failures: [String] = []
+        let style = exportStyle
+        // 分类文件夹模式需要媒体文件才能分目录；单文件模式仍尊重开关。
+        let wantMedia = style == .folderBundle ? true : includeMedia
 
         do {
             try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
 
             switch backend {
             case .wxCli(let wxCli):
-                if includeMedia {
+                if wantMedia && style == .singleHTML {
                     let stickerTemp = FileManager.default.temporaryDirectory
                         .appendingPathComponent("WeChatExporter-stickers-\(UUID().uuidString)", isDirectory: true)
                     defer { try? FileManager.default.removeItem(at: stickerTemp) }
@@ -313,15 +317,28 @@ final class AppViewModel: ObservableObject {
                         let count = try await wxCli.export(
                             contact: contact,
                             outputDir: tempDir,
-                            includeMedia: includeMedia,
+                            includeMedia: wantMedia,
                             log: logHandler()
                         )
-                        let htmlURL = try SingleFileExporter.writeHTML(
-                            from: tempDir,
-                            contactName: contact.displayName,
-                            into: base
-                        )
-                        summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                        switch style {
+                        case .singleHTML:
+                            let htmlURL = try SingleFileExporter.writeHTML(
+                                from: tempDir,
+                                contactName: contact.displayName,
+                                into: base
+                            )
+                            summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                        case .folderBundle:
+                            let result = try FolderBundleExporter.write(
+                                from: tempDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                log: logHandler()
+                            )
+                            summary.append(
+                                "• \(contact.displayName)：\(count) 条 → \(result.folderURL.lastPathComponent)/（图\(result.imageCount)/音\(result.audioCount)/视\(result.videoCount)）"
+                            )
+                        }
                     } catch {
                         let message = error.localizedDescription
                         failures.append("• \(contact.displayName)：\(message)")
@@ -346,12 +363,25 @@ final class AppViewModel: ObservableObject {
                             decryptedDir: paths.decryptedDir,
                             outputDir: tempDir
                         )
-                        let htmlURL = try SingleFileExporter.writeHTML(
-                            from: tempDir,
-                            contactName: contact.displayName,
-                            into: base
-                        )
-                        summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                        switch style {
+                        case .singleHTML:
+                            let htmlURL = try SingleFileExporter.writeHTML(
+                                from: tempDir,
+                                contactName: contact.displayName,
+                                into: base
+                            )
+                            summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                        case .folderBundle:
+                            let result = try FolderBundleExporter.write(
+                                from: tempDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                log: logHandler()
+                            )
+                            summary.append(
+                                "• \(contact.displayName)：\(count) 条 → \(result.folderURL.lastPathComponent)/"
+                            )
+                        }
                     } catch {
                         let message = error.localizedDescription
                         failures.append("• \(contact.displayName)：\(message)")
@@ -365,7 +395,10 @@ final class AppViewModel: ObservableObject {
                     "全部导出失败（共 \(selected.count) 个会话）：\n\(failures.joined(separator: "\n"))"
                 )
             } else if failures.isEmpty {
-                alertMessage = "已导出 \(summary.count) 个单文件到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。"
+                let tip = style == .singleHTML
+                    ? "用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。"
+                    : "每个会话一个文件夹：文字记录.txt + 图片/音频/视频/表情 分目录。"
+                alertMessage = "已导出 \(summary.count) 项到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n\(tip)"
                 showAlert = true
             } else {
                 alertMessage = "部分导出完成（成功 \(summary.count)，失败 \(failures.count)）：\n\(base.path)\n\n成功：\n\(summary.joined(separator: "\n"))\n\n失败：\n\(failures.joined(separator: "\n"))"

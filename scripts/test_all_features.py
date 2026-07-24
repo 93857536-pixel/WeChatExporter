@@ -347,9 +347,9 @@ def test_versions_and_assets():
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     build_app = (ROOT / "build_app.sh").read_text(encoding="utf-8")
     csproj = (ROOT / "windows/WeChatExporter.Windows/WeChatExporter.Windows.csproj").read_text(encoding="utf-8")
-    check("CHANGELOG 含 2.6.5", "## [2.6.5]" in changelog)
-    check("build_app.sh 版本 2.6.5", 'APP_VERSION="${APP_VERSION:-2.6.5}"' in build_app)
-    check("Windows csproj 版本 2.6.5", "<Version>2.6.5</Version>" in csproj)
+    check("CHANGELOG 含 2.7.0", "## [2.7.0]" in changelog)
+    check("build_app.sh 版本 2.7.0", 'APP_VERSION="${APP_VERSION:-2.7.0}"' in build_app)
+    check("Windows csproj 版本 2.7.0", "<Version>2.7.0</Version>" in csproj)
 
     mac_cli = ROOT / "vendor/macos/wx-cli"
     win_cli = ROOT / "vendor/windows/wx.exe"
@@ -397,6 +397,8 @@ def test_feature_surface_files():
         "Sources/WeChatExporter/Services/EmojiExporter.swift",
         "Sources/WeChatExporter/Services/StickerPackExporter.swift",
         "Sources/WeChatExporter/Services/DatImageDecoder.swift",
+        "Sources/WeChatExporter/Services/FolderBundleExporter.swift",
+        "Sources/WeChatExporter/Models/ExportStyle.swift",
         "Sources/WeChatExporter/Services/WXGFTranscoder.swift",
         "Sources/WeChatExporter/Services/KeyCaptureService.swift",
         "Sources/WeChatExporter/Services/DatabaseService.swift",
@@ -404,6 +406,8 @@ def test_feature_surface_files():
         "Sources/WeChatExporter/Views/ContentView.swift",
         "windows/WeChatExporter.Windows/Services/WxCliService.cs",
         "windows/WeChatExporter.Windows/Services/SingleFileExporter.cs",
+        "windows/WeChatExporter.Windows/Services/FolderBundleExporter.cs",
+        "windows/WeChatExporter.Windows/Models/ExportStyle.cs",
         "windows/WeChatExporter.Windows/Services/ImageExporter.cs",
         "windows/WeChatExporter.Windows/Services/EmojiExporter.cs",
         "windows/WeChatExporter.Windows/Services/StickerPackExporter.cs",
@@ -434,6 +438,71 @@ def test_csharp_logic_selftest():
     check("C# ALL PASSED", "ALL PASSED" in out, out[-300:])
 
 
+def test_folder_bundle_layout():
+    print("\n[14] 分类文件夹布局")
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "src"
+        media_images = src / "media" / "images"
+        media_emojis = src / "media" / "emojis"
+        media_voice = src / "media" / "voice"
+        media_video = src / "media" / "video"
+        for d in (media_images, media_emojis, media_voice, media_video):
+            d.mkdir(parents=True)
+        (src / "chat.txt").write_text("[2026-01-01 12:00:00] 甲: 你好\n", encoding="utf-8")
+        (src / "chat.json").write_text(
+            json.dumps({"items": [{"sender": "甲", "content": "你好", "msg_type": 1}]}),
+            encoding="utf-8",
+        )
+        (media_images / "a.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 8)
+        (media_emojis / "e.gif").write_bytes(b"GIF89a" + b"\x00" * 8)
+        (media_voice / "v.mp3").write_bytes(b"ID3" + b"\x00" * 8)
+        (media_video / "clip.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 8)
+
+        # 模拟 FolderBundleExporter 分类规则
+        out = Path(tmp) / "out" / "联系人_test"
+        mapping = {
+            "图片": out / "图片",
+            "音频": out / "音频",
+            "视频": out / "视频",
+            "表情": out / "表情",
+        }
+        for d in mapping.values():
+            d.mkdir(parents=True)
+        shutil.copy2(src / "chat.txt", out / "文字记录.txt")
+
+        image_exts = {"jpg", "jpeg", "png", "gif", "webp", "bmp"}
+        audio_exts = {"mp3", "m4a", "aac", "wav", "ogg", "silk", "amr"}
+        video_exts = {"mp4", "mov", "m4v", "avi", "mkv"}
+        media_root = src / "media"
+        for file in media_root.rglob("*"):
+            if not file.is_file():
+                continue
+            rel = str(file.relative_to(media_root)).replace("\\", "/")
+            ext = file.suffix.lower().lstrip(".")
+            is_emoji = "/emojis/" in f"/{rel}" or rel.startswith("emojis/")
+            if is_emoji:
+                shutil.copy2(file, mapping["表情"] / file.name)
+            elif ext in image_exts:
+                shutil.copy2(file, mapping["图片"] / file.name)
+            elif ext in audio_exts:
+                shutil.copy2(file, mapping["音频"] / file.name)
+            elif ext in video_exts:
+                shutil.copy2(file, mapping["视频"] / file.name)
+
+        check("文字记录存在", (out / "文字记录.txt").is_file())
+        check("图片分目录", (mapping["图片"] / "a.jpg").is_file())
+        check("表情分目录", (mapping["表情"] / "e.gif").is_file())
+        check("音频分目录", (mapping["音频"] / "v.mp3").is_file())
+        check("视频分目录", (mapping["视频"] / "clip.mp4").is_file())
+
+    swift_ui = (ROOT / "Sources/WeChatExporter/Views/ContentView.swift").read_text(encoding="utf-8")
+    win_xaml = (ROOT / "windows/WeChatExporter.Windows/MainWindow.xaml").read_text(encoding="utf-8")
+    mac_vm = (ROOT / "Sources/WeChatExporter/ViewModels/AppViewModel.swift").read_text(encoding="utf-8")
+    check("macOS UI 含导出方式选择", "exportStyle" in swift_ui and "分类文件夹" in swift_ui)
+    check("Windows UI 含分类文件夹", "分类文件夹" in win_xaml and "IsFolderBundleStyle" in win_xaml)
+    check("macOS 导出分支含 folderBundle", "folderBundle" in mac_vm and "FolderBundleExporter" in mac_vm)
+
+
 def main() -> int:
     print("WeChatExporter 离线功能测试")
     print(f"仓库：{ROOT}")
@@ -450,6 +519,7 @@ def main() -> int:
     test_vendor_bundle_copy()
     test_feature_surface_files()
     test_csharp_logic_selftest()
+    test_folder_bundle_layout()
 
     print("\n" + "=" * 60)
     print(f"结果：{PASSED} 通过，{FAILED} 失败")

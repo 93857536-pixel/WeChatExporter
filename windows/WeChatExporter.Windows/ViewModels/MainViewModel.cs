@@ -20,6 +20,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isBusy;
     private bool _isDataReady;
     private bool _includeMedia;
+    private ExportStyle _exportStyle = ExportStyle.SingleHtml;
     private string? _alertMessage;
     private double? _operationProgress;
     private string _operationProgressLabel = "";
@@ -129,6 +130,37 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
         }
     }
+
+    public ExportStyle ExportStyle
+    {
+        get => _exportStyle;
+        set
+        {
+            if (_exportStyle == value) return;
+            _exportStyle = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsSingleHtmlStyle));
+            OnPropertyChanged(nameof(IsFolderBundleStyle));
+            OnPropertyChanged(nameof(ExportStyleDetail));
+            OnPropertyChanged(nameof(ShowIncludeMediaToggle));
+        }
+    }
+
+    public bool IsSingleHtmlStyle
+    {
+        get => ExportStyle == ExportStyle.SingleHtml;
+        set { if (value) ExportStyle = ExportStyle.SingleHtml; }
+    }
+
+    public bool IsFolderBundleStyle
+    {
+        get => ExportStyle == ExportStyle.FolderBundle;
+        set { if (value) ExportStyle = ExportStyle.FolderBundle; }
+    }
+
+    public string ExportStyleDetail => ExportStyleInfo.Detail(ExportStyle);
+
+    public bool ShowIncludeMediaToggle => ExportStyle == ExportStyle.SingleHtml;
 
     public string StatusText
     {
@@ -263,7 +295,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             Directory.CreateDirectory(ExportPath);
-            if (IncludeMedia)
+            var style = ExportStyle;
+            var wantMedia = style == ExportStyle.FolderBundle || IncludeMedia;
+
+            if (wantMedia && style == ExportStyle.SingleHtml)
             {
                 var stickerTemp = Path.Combine(Path.GetTempPath(), $"WeChatExporter-stickers-{Guid.NewGuid():N}");
                 try
@@ -291,9 +326,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 var tempDir = Path.Combine(Path.GetTempPath(), $"WeChatExporter-{Guid.NewGuid():N}");
                 try
                 {
-                    var count = await _wxCli.ExportAsync(contact, tempDir, IncludeMedia, AppendLog);
-                    var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
-                    summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
+                    var count = await _wxCli.ExportAsync(contact, tempDir, wantMedia, AppendLog);
+                    if (style == ExportStyle.FolderBundle)
+                    {
+                        var result = FolderBundleExporter.Write(tempDir, contact.DisplayName, ExportPath, AppendLog);
+                        summary.Add(
+                            $"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(result.FolderPath)}/（图{result.ImageCount}/音{result.AudioCount}/视{result.VideoCount}）");
+                    }
+                    else
+                    {
+                        var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
+                        summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -312,7 +356,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
             else if (failures.Count == 0)
             {
-                ShowAlert($"已导出 {summary.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
+                var tip = style == ExportStyle.SingleHtml
+                    ? "用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。"
+                    : "每个会话一个文件夹：文字记录.txt + 图片/音频/视频/表情 分目录。";
+                ShowAlert($"已导出 {summary.Count} 项到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n{tip}");
             }
             else
             {

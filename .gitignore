@@ -38,3 +38,5 @@ all_keys.json
 *.swp
 *~
 assets/dmg-preview.png
+**/__pycache__/
+*.pyc

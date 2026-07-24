@@ -138,8 +138,26 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("导出设置", systemImage: "slider.horizontal.3")
                         .font(.headline)
-                    Toggle("同时导出图片、表情、全部表情包等媒体并内嵌到 HTML（体积更大，耗时更长）", isOn: $model.includeMedia)
-                        .toggleStyle(.switch)
+
+                    Picker("导出方式", selection: $model.exportStyle) {
+                        ForEach(ExportStyle.allCases) { style in
+                            Text(style.title).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(model.exportStyle.detail)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+
+                    if model.exportStyle == .singleHTML {
+                        Toggle("同时导出图片、表情、全部表情包等媒体并内嵌到 HTML（体积更大，耗时更长）", isOn: $model.includeMedia)
+                            .toggleStyle(.switch)
+                    } else {
+                        Text("分类文件夹模式会自动导出媒体，并整理为：文字记录.txt、图片/、音频/、视频/、表情/")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.subtleText)
+                    }
                 }
                 .padding(4)
             }
@@ -164,7 +182,7 @@ struct ContentView: View {
                         .font(.headline)
                     Text("1. 首次使用点击「准备数据」（会重启微信）")
                     Text("2. 在左侧列表中选择一个或多个联系人")
-                    Text("3. 点击「导出选中」")
+                    Text("3. 选择导出方式（单文件 HTML 或分类文件夹）后点击「导出选中」")
                     Text("4. 路径由系统自动检测，无需手动配置")
                         .foregroundStyle(AppTheme.subtleText)
                 }
