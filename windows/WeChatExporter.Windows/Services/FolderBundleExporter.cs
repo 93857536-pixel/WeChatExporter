@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -27,36 +28,36 @@ internal static class FolderBundleExporter
 
     public static Result Write(string sourceDir, string contactName, string destinationDir, Action<string> log)
     {
-        var jsonPath = Path.Combine(sourceDir, "chat.json");
-        var txtPath = Path.Combine(sourceDir, "chat.txt");
-        if (!File.Exists(jsonPath) && !File.Exists(txtPath))
+        var jsonPath = System.IO.Path.Combine(sourceDir, "chat.json");
+        var txtPath = System.IO.Path.Combine(sourceDir, "chat.txt");
+        if (!System.IO.File.Exists(jsonPath) && !System.IO.File.Exists(txtPath))
             throw new InvalidOperationException("未找到聊天记录文件，无法生成分类文件夹");
 
         var messageCount = CountMessages(sourceDir);
-        if (messageCount <= 0 && !File.Exists(txtPath))
+        if (messageCount <= 0 && !System.IO.File.Exists(txtPath))
             throw new InvalidOperationException("聊天记录为空，无法生成分类文件夹");
 
         var safeName = SanitizeFilename(string.IsNullOrWhiteSpace(contactName) ? "聊天记录" : contactName);
         var stamp = FileStamp();
-        var folder = Path.Combine(destinationDir, $"{safeName}_{stamp}");
-        var imagesDir = Path.Combine(folder, "图片");
-        var audioDir = Path.Combine(folder, "音频");
-        var videoDir = Path.Combine(folder, "视频");
-        var emojiDir = Path.Combine(folder, "表情");
-        Directory.CreateDirectory(imagesDir);
-        Directory.CreateDirectory(audioDir);
-        Directory.CreateDirectory(videoDir);
-        Directory.CreateDirectory(emojiDir);
+        var folder = System.IO.Path.Combine(destinationDir, $"{safeName}_{stamp}");
+        var imagesDir = System.IO.Path.Combine(folder, "图片");
+        var audioDir = System.IO.Path.Combine(folder, "音频");
+        var videoDir = System.IO.Path.Combine(folder, "视频");
+        var emojiDir = System.IO.Path.Combine(folder, "表情");
+        System.IO.Directory.CreateDirectory(imagesDir);
+        System.IO.Directory.CreateDirectory(audioDir);
+        System.IO.Directory.CreateDirectory(videoDir);
+        System.IO.Directory.CreateDirectory(emojiDir);
 
-        var textDest = Path.Combine(folder, "文字记录.txt");
-        if (File.Exists(txtPath))
-            File.Copy(txtPath, textDest, true);
+        var textDest = System.IO.Path.Combine(folder, "文字记录.txt");
+        if (System.IO.File.Exists(txtPath))
+            System.IO.File.Copy(txtPath, textDest, true);
         else
-            File.WriteAllText(textDest, BuildTextFromJson(jsonPath, contactName), Encoding.UTF8);
+            System.IO.File.WriteAllText(textDest, BuildTextFromJson(jsonPath, contactName), Encoding.UTF8);
 
-        var csvPath = Path.Combine(sourceDir, "chat.csv");
-        if (File.Exists(csvPath))
-            File.Copy(csvPath, Path.Combine(folder, "聊天记录.csv"), true);
+        var csvPath = System.IO.Path.Combine(sourceDir, "chat.csv");
+        if (System.IO.File.Exists(csvPath))
+            System.IO.File.Copy(csvPath, System.IO.Path.Combine(folder, "聊天记录.csv"), true);
 
         var imageCount = 0;
         var audioCount = 0;
@@ -70,37 +71,37 @@ internal static class FolderBundleExporter
             ["表情"] = new(StringComparer.OrdinalIgnoreCase),
         };
 
-        var mediaRoot = Path.Combine(sourceDir, "media");
-        if (Directory.Exists(mediaRoot))
+        var mediaRoot = System.IO.Path.Combine(sourceDir, "media");
+        if (System.IO.Directory.Exists(mediaRoot))
         {
-            foreach (var filePath in Directory.EnumerateFiles(mediaRoot, "*", SearchOption.AllDirectories))
+            foreach (var filePath in System.IO.Directory.EnumerateFiles(mediaRoot, "*", System.IO.SearchOption.AllDirectories))
             {
-                var rel = Path.GetRelativePath(mediaRoot, filePath).Replace('\\', '/');
+                var rel = System.IO.Path.GetRelativePath(mediaRoot, filePath).Replace('\\', '/');
                 var isEmoji = rel.Contains("/emojis/", StringComparison.OrdinalIgnoreCase)
                               || rel.StartsWith("emojis/", StringComparison.OrdinalIgnoreCase);
 
                 var source = filePath;
-                var ext = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
+                var ext = System.IO.Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
                 if (ext == "wxgf")
                 {
                     var transcoded = WXGFTranscoder.TranscodeIfNeeded(filePath, log);
                     if (transcoded is not null)
                     {
                         source = transcoded;
-                        ext = Path.GetExtension(transcoded).TrimStart('.').ToLowerInvariant();
+                        ext = System.IO.Path.GetExtension(transcoded).TrimStart('.').ToLowerInvariant();
                     }
                 }
 
                 if (isEmoji)
                 {
-                    var dest = UniqueDest(emojiDir, Path.GetFileName(source), used["表情"]);
+                    var dest = UniqueDest(emojiDir, System.IO.Path.GetFileName(source), used["表情"]);
                     if (CopyFile(source, dest)) emojiCount++;
                     continue;
                 }
 
                 if (ImageExts.Contains(ext) || ext == "wxgf")
                 {
-                    var dest = UniqueDest(imagesDir, Path.GetFileName(source), used["图片"]);
+                    var dest = UniqueDest(imagesDir, System.IO.Path.GetFileName(source), used["图片"]);
                     if (CopyFile(source, dest)) imageCount++;
                     continue;
                 }
@@ -113,12 +114,12 @@ internal static class FolderBundleExporter
                     }
                     else
                     {
-                        var dest = UniqueDest(audioDir, Path.GetFileName(source), used["音频"]);
+                        var dest = UniqueDest(audioDir, System.IO.Path.GetFileName(source), used["音频"]);
                         if (CopyFile(source, dest))
                         {
                             audioCount++;
                             if (ext == "silk")
-                                log($"语音保留为 SILK：{Path.GetFileName(dest)}（未检测到可转码的 ffmpeg）");
+                                log($"语音保留为 SILK：{System.IO.Path.GetFileName(dest)}（未检测到可转码的 ffmpeg）");
                         }
                     }
                     continue;
@@ -132,7 +133,7 @@ internal static class FolderBundleExporter
                     }
                     else
                     {
-                        var dest = UniqueDest(videoDir, Path.GetFileName(source), used["视频"]);
+                        var dest = UniqueDest(videoDir, System.IO.Path.GetFileName(source), used["视频"]);
                         if (CopyFile(source, dest)) videoCount++;
                     }
                 }
@@ -156,19 +157,19 @@ internal static class FolderBundleExporter
 
             统计：图片 {imageCount} · 音频 {audioCount} · 视频 {videoCount} · 表情 {emojiCount}
             """;
-        File.WriteAllText(Path.Combine(folder, "导出说明.txt"), readme, Encoding.UTF8);
-        log($"分类文件夹已生成：{Path.GetFileName(folder)}（图{imageCount}/音{audioCount}/视{videoCount}/表情{emojiCount}）");
+        System.IO.File.WriteAllText(System.IO.Path.Combine(folder, "导出说明.txt"), readme, Encoding.UTF8);
+        log($"分类文件夹已生成：{System.IO.Path.GetFileName(folder)}（图{imageCount}/音{audioCount}/视{videoCount}/表情{emojiCount}）");
         return new Result(folder, Math.Max(messageCount, 0), imageCount, audioCount, videoCount, emojiCount);
     }
 
     private static int CountMessages(string sourceDir)
     {
-        var jsonPath = Path.Combine(sourceDir, "chat.json");
-        if (File.Exists(jsonPath))
+        var jsonPath = System.IO.Path.Combine(sourceDir, "chat.json");
+        if (System.IO.File.Exists(jsonPath))
         {
             try
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(jsonPath));
+                using var doc = JsonDocument.Parse(System.IO.File.ReadAllText(jsonPath));
                 var root = doc.RootElement;
                 if (root.ValueKind == JsonValueKind.Array) return root.GetArrayLength();
                 if (root.ValueKind == JsonValueKind.Object)
@@ -190,15 +191,15 @@ internal static class FolderBundleExporter
             catch { /* fall through */ }
         }
 
-        var txtPath = Path.Combine(sourceDir, "chat.txt");
-        if (File.Exists(txtPath))
-            return File.ReadAllLines(txtPath).Count(l => l.StartsWith('['));
+        var txtPath = System.IO.Path.Combine(sourceDir, "chat.txt");
+        if (System.IO.File.Exists(txtPath))
+            return System.IO.File.ReadAllLines(txtPath).Count(l => l.StartsWith('['));
         return 0;
     }
 
     private static string BuildTextFromJson(string jsonPath, string contactName)
     {
-        using var doc = JsonDocument.Parse(File.ReadAllText(jsonPath));
+        using var doc = JsonDocument.Parse(System.IO.File.ReadAllText(jsonPath));
         var root = doc.RootElement;
         var rows = new List<JsonElement>();
         if (root.ValueKind == JsonValueKind.Array)
@@ -253,7 +254,7 @@ internal static class FolderBundleExporter
     {
         try
         {
-            File.Copy(source, dest, true);
+            System.IO.File.Copy(source, dest, true);
             return true;
         }
         catch
@@ -270,30 +271,30 @@ internal static class FolderBundleExporter
         var index = 1;
         while (used.Contains(candidate))
         {
-            var baseName = Path.GetFileNameWithoutExtension(name);
-            var ext = Path.GetExtension(name);
+            var baseName = System.IO.Path.GetFileNameWithoutExtension(name);
+            var ext = System.IO.Path.GetExtension(name);
             candidate = $"{baseName}_{index}{ext}";
             index++;
         }
         used.Add(candidate);
-        return Path.Combine(dir, candidate);
+        return System.IO.Path.Combine(dir, candidate);
     }
 
     private static string? ConvertAudioToMp3(string source, string dir, HashSet<string> used, Action<string> log)
     {
-        var ext = Path.GetExtension(source).TrimStart('.').ToLowerInvariant();
+        var ext = System.IO.Path.GetExtension(source).TrimStart('.').ToLowerInvariant();
         if (ext == "mp3")
         {
-            var dest = UniqueDest(dir, Path.GetFileName(source), used);
+            var dest = UniqueDest(dir, System.IO.Path.GetFileName(source), used);
             return CopyFile(source, dest) ? dest : null;
         }
 
         var ffmpeg = LocateFfmpeg();
         if (ffmpeg is null) return null;
-        var destMp3 = UniqueDest(dir, Path.GetFileNameWithoutExtension(source) + ".mp3", used);
+        var destMp3 = UniqueDest(dir, System.IO.Path.GetFileNameWithoutExtension(source) + ".mp3", used);
         if (RunFfmpeg(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-i", source, destMp3]))
         {
-            log($"已转码音频为 MP3：{Path.GetFileName(destMp3)}");
+            log($"已转码音频为 MP3：{System.IO.Path.GetFileName(destMp3)}");
             return destMp3;
         }
         return null;
@@ -301,20 +302,20 @@ internal static class FolderBundleExporter
 
     private static string? EnsureMp4(string source, string dir, HashSet<string> used, Action<string> log)
     {
-        var ext = Path.GetExtension(source).TrimStart('.').ToLowerInvariant();
+        var ext = System.IO.Path.GetExtension(source).TrimStart('.').ToLowerInvariant();
         if (ext == "mp4")
         {
-            var dest = UniqueDest(dir, Path.GetFileName(source), used);
+            var dest = UniqueDest(dir, System.IO.Path.GetFileName(source), used);
             return CopyFile(source, dest) ? dest : null;
         }
 
         var ffmpeg = LocateFfmpeg();
         if (ffmpeg is null) return null;
-        var destMp4 = UniqueDest(dir, Path.GetFileNameWithoutExtension(source) + ".mp4", used);
+        var destMp4 = UniqueDest(dir, System.IO.Path.GetFileNameWithoutExtension(source) + ".mp4", used);
         if (RunFfmpeg(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-i", source, "-c", "copy", destMp4])
             || RunFfmpeg(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-i", source, destMp4]))
         {
-            log($"已转换为 MP4：{Path.GetFileName(destMp4)}");
+            log($"已转换为 MP4：{System.IO.Path.GetFileName(destMp4)}");
             return destMp4;
         }
         return null;
@@ -347,12 +348,12 @@ internal static class FolderBundleExporter
     private static string? LocateFfmpeg()
     {
         var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var dir in pathEnv.Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             foreach (var name in new[] { "ffmpeg.exe", "ffmpeg" })
             {
-                var candidate = Path.Combine(dir.Trim(), name);
-                if (File.Exists(candidate)) return candidate;
+                var candidate = System.IO.Path.Combine(dir.Trim(), name);
+                if (System.IO.File.Exists(candidate)) return candidate;
             }
         }
         foreach (var candidate in new[]
@@ -364,7 +365,7 @@ internal static class FolderBundleExporter
                      "/usr/bin/ffmpeg",
                  })
         {
-            if (File.Exists(candidate)) return candidate;
+            if (System.IO.File.Exists(candidate)) return candidate;
         }
         return null;
     }
