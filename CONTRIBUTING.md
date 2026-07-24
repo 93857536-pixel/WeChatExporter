@@ -30,6 +30,8 @@ cd windows
 
 维护者推送 `v*` tag 后，GitHub Actions 会自动构建并发布 Release。
 
+功能开发完成且 CI 通过后，应直接打 `v*` tag 推送发版（详见 `AGENTS.md`），无需额外催促。
+
 ## 原则
 
 - 仅用于备份**本人**聊天记录
