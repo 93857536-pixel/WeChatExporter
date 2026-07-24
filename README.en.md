@@ -24,7 +24,8 @@ Get the latest build from **[GitHub Releases](https://github.com/93857536-pixel/
 - GUI: search, multi-select contacts/groups
 - Bundled wx-cli (no separate CLI install)
 - Readiness banner for first-time setup
-- Optional media export (best-effort)
+- Two export modes: single self-contained HTML, or folder bundle (text doc + images/audio/video/emojis)
+- Optional media export for HTML mode (best-effort)
 - Export TXT / CSV / JSON
 
 ## Requirements
