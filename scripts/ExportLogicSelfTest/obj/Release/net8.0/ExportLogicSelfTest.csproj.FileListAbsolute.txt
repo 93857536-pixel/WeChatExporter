@@ -1,0 +1,15 @@
+/workspace/scripts/ExportLogicSelfTest/bin/Release/net8.0/ExportLogicSelfTest
+/workspace/scripts/ExportLogicSelfTest/bin/Release/net8.0/ExportLogicSelfTest.deps.json
+/workspace/scripts/ExportLogicSelfTest/bin/Release/net8.0/ExportLogicSelfTest.runtimeconfig.json
+/workspace/scripts/ExportLogicSelfTest/bin/Release/net8.0/ExportLogicSelfTest.dll
+/workspace/scripts/ExportLogicSelfTest/bin/Release/net8.0/ExportLogicSelfTest.pdb
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ExportLogicSelfTest.GeneratedMSBuildEditorConfig.editorconfig
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ExportLogicSelfTest.AssemblyInfoInputs.cache
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ExportLogicSelfTest.AssemblyInfo.cs
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ExportLogicSelfTest.csproj.CoreCompileInputs.cache
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ExportLogicSelfTest.sourcelink.json
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ExportLogicSelfTest.dll
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/refint/ExportLogicSelfTest.dll
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ExportLogicSelfTest.pdb
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ExportLogicSelfTest.genruntimeconfig.cache
+/workspace/scripts/ExportLogicSelfTest/obj/Release/net8.0/ref/ExportLogicSelfTest.dll
