@@ -19,6 +19,8 @@ enum FolderBundleExporter {
         from sourceDir: URL,
         contactName: String,
         into destinationDir: URL,
+        includeCSV: Bool = true,
+        includeJSON: Bool = false,
         log: @escaping (String) -> Void
     ) throws -> Result {
         let fm = FileManager.default
@@ -57,10 +59,16 @@ enum FolderBundleExporter {
         }
 
         let csvURL = sourceDir.appendingPathComponent("chat.csv")
-        if fm.fileExists(atPath: csvURL.path) {
+        if includeCSV, fm.fileExists(atPath: csvURL.path) {
             let csvDest = folder.appendingPathComponent("聊天记录.csv")
             try? fm.removeItem(at: csvDest)
             try fm.copyItem(at: csvURL, to: csvDest)
+        }
+
+        if includeJSON, fm.fileExists(atPath: jsonURL.path) {
+            let jsonDest = folder.appendingPathComponent("chat.json")
+            try? fm.removeItem(at: jsonDest)
+            try fm.copyItem(at: jsonURL, to: jsonDest)
         }
 
         var imageCount = 0

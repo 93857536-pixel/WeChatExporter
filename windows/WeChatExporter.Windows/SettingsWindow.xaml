@@ -1,0 +1,89 @@
+<Window x:Class="WeChatExporter.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="设置"
+        Width="560" Height="640"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{DynamicResource AppBgBrush}">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <TextBlock x:Name="CreditText"
+                       HorizontalAlignment="Center"
+                       Foreground="{DynamicResource AppMutedBrush}"
+                       FontSize="12"
+                       Margin="0,0,0,12"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="取消" Width="88" Margin="0,0,8,0" Padding="10,6" Click="Cancel_Click"/>
+                <Button Content="保存" Width="88" Padding="10,6"
+                        Background="{StaticResource AccentBrush}" Foreground="White"
+                        Click="Save_Click"/>
+            </StackPanel>
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="外观" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8"
+                           Foreground="{DynamicResource AppTextBrush}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                    <RadioButton x:Name="AppearanceSystem" Content="跟随系统" Margin="0,0,14,0"
+                                 GroupName="Appearance" Foreground="{DynamicResource AppTextBrush}"/>
+                    <RadioButton x:Name="AppearanceLight" Content="浅色" Margin="0,0,14,0"
+                                 GroupName="Appearance" Foreground="{DynamicResource AppTextBrush}"/>
+                    <RadioButton x:Name="AppearanceDark" Content="深色"
+                                 GroupName="Appearance" Foreground="{DynamicResource AppTextBrush}"/>
+                </StackPanel>
+
+                <TextBlock Text="导出方式 / 输出类型" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8"
+                           Foreground="{DynamicResource AppTextBrush}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <RadioButton x:Name="StyleHtml" Content="单文件 HTML" Margin="0,0,14,0"
+                                 GroupName="ExportStyle" Checked="Style_Changed"
+                                 Foreground="{DynamicResource AppTextBrush}"/>
+                    <RadioButton x:Name="StyleFolder" Content="分类文件夹"
+                                 GroupName="ExportStyle" Checked="Style_Changed"
+                                 Foreground="{DynamicResource AppTextBrush}"/>
+                </StackPanel>
+                <TextBlock x:Name="StyleDetailText" TextWrapping="Wrap" FontSize="12"
+                           Foreground="{DynamicResource AppMutedBrush}" Margin="0,0,0,16"/>
+
+                <TextBlock Text="导出内容" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8"
+                           Foreground="{DynamicResource AppTextBrush}"/>
+                <StackPanel x:Name="HtmlOptionsPanel" Margin="0,0,0,8">
+                    <CheckBox x:Name="IncludeMediaCheck"
+                              Content="导出媒体并内嵌到 HTML（图片/表情/音视频）"
+                              Foreground="{DynamicResource AppTextBrush}" Margin="0,0,0,6"/>
+                </StackPanel>
+                <StackPanel x:Name="FolderOptionsPanel" Margin="0,0,0,8">
+                    <TextBlock Text="分类文件夹会自动导出媒体，并整理为文字 / 图片 / 音频 / 视频 / 表情。"
+                               TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource AppMutedBrush}" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="FolderCsvCheck" Content="同时附带 聊天记录.csv"
+                              Foreground="{DynamicResource AppTextBrush}" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="FolderJsonCheck" Content="同时附带 chat.json 原始数据"
+                              Foreground="{DynamicResource AppTextBrush}" Margin="0,0,0,6"/>
+                </StackPanel>
+                <CheckBox x:Name="IncludeStickerCheck" Content="额外导出全部表情包画廊"
+                          Foreground="{DynamicResource AppTextBrush}" Margin="0,0,0,16"/>
+
+                <TextBlock Text="导出目录" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8"
+                           Foreground="{DynamicResource AppTextBrush}"/>
+                <TextBox x:Name="ExportPathBox" Margin="0,0,0,8" Padding="8,6"
+                         Background="{DynamicResource AppInputBgBrush}"
+                         Foreground="{DynamicResource AppTextBrush}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button Content="选择…" Padding="10,6" Margin="0,0,8,0" Click="ChooseFolder_Click"/>
+                    <Button Content="打开" Padding="10,6" Click="OpenFolder_Click"/>
+                </StackPanel>
+                <CheckBox x:Name="OpenAfterExportCheck" Content="导出完成后自动打开文件夹"
+                          Foreground="{DynamicResource AppTextBrush}" Margin="0,0,0,16"/>
+
+                <TextBlock Text="其他" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,8"
+                           Foreground="{DynamicResource AppTextBrush}"/>
+                <TextBlock Text="首次「准备数据」建议以管理员身份运行；需微信 PC 版已登录。"
+                           TextWrapping="Wrap" FontSize="12"
+                           Foreground="{DynamicResource AppMutedBrush}"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

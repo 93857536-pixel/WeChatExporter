@@ -11,26 +11,32 @@ final class AppViewModel: ObservableObject {
     @Published var contacts: [ContactItem] = []
     @Published var selectedIDs: Set<String> = []
     @Published var searchText = ""
-    @Published var exportPath: String = ""
     @Published var logs: [String] = []
     @Published var isBusy = false
     @Published var statusText = "就绪"
     @Published var isDataReady = false
-    @Published var includeMedia = false
-    @Published var exportStyle: ExportStyle = .singleHTML
     @Published var alertMessage: String?
     @Published var showAlert = false
+    @Published var showSettings = false
     @Published var operationProgress: Double?
     @Published var operationProgressLabel = ""
 
+    let settings = AppSettings.shared
     private let backend: Backend
     private var didBootstrap = false
 
+    var exportPath: String {
+        get { settings.exportPath }
+        set { settings.exportPath = newValue }
+    }
+
     init() {
-        let defaultExport = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Downloads/微信聊天记录导出", isDirectory: true)
-            .path
-        exportPath = defaultExport
+        let defaultExport = settings.exportPath
+        if defaultExport.isEmpty {
+            settings.exportPath = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Downloads/微信聊天记录导出", isDirectory: true)
+                .path
+        }
 
         if let wxCli = WxCliService() {
             backend = .wxCli(wxCli)
@@ -41,7 +47,9 @@ final class AppViewModel: ObservableObject {
         do {
             let paths = try AppPaths.detect()
             backend = .native(paths)
-            exportPath = paths.exportDir.path
+            if settings.exportPath.contains("Downloads/微信聊天记录导出") {
+                settings.exportPath = paths.exportDir.path
+            }
             appendLog("账号：\(paths.accountID)")
         } catch {
             backend = .native(
@@ -52,7 +60,7 @@ final class AppViewModel: ObservableObject {
                     decryptedDir: URL(fileURLWithPath: "/"),
                     keysFile: URL(fileURLWithPath: "/"),
                     rawKeyFile: URL(fileURLWithPath: "/"),
-                    exportDir: URL(fileURLWithPath: defaultExport, isDirectory: true)
+                    exportDir: URL(fileURLWithPath: settings.exportPath, isDirectory: true)
                 )
             )
             presentError(error.localizedDescription)
@@ -287,16 +295,17 @@ final class AppViewModel: ObservableObject {
         let base = URL(fileURLWithPath: exportPath.expandingTildeInPath, isDirectory: true)
         var summary: [String] = []
         var failures: [String] = []
-        let style = exportStyle
+        let style = settings.exportStyle
         // 分类文件夹模式需要媒体文件才能分目录；单文件模式仍尊重开关。
-        let wantMedia = style == .folderBundle ? true : includeMedia
+        let wantMedia = style == .folderBundle ? true : settings.includeMedia
+        let wantStickers = settings.includeStickerGallery && wantMedia
 
         do {
             try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
 
             switch backend {
             case .wxCli(let wxCli):
-                if wantMedia && style == .singleHTML {
+                if wantStickers {
                     let stickerTemp = FileManager.default.temporaryDirectory
                         .appendingPathComponent("WeChatExporter-stickers-\(UUID().uuidString)", isDirectory: true)
                     defer { try? FileManager.default.removeItem(at: stickerTemp) }
@@ -333,6 +342,8 @@ final class AppViewModel: ObservableObject {
                                 from: tempDir,
                                 contactName: contact.displayName,
                                 into: base,
+                                includeCSV: settings.folderIncludeCSV,
+                                includeJSON: settings.folderIncludeJSON,
                                 log: logHandler()
                             )
                             summary.append(
@@ -376,6 +387,8 @@ final class AppViewModel: ObservableObject {
                                 from: tempDir,
                                 contactName: contact.displayName,
                                 into: base,
+                                includeCSV: settings.folderIncludeCSV,
+                                includeJSON: settings.folderIncludeJSON,
                                 log: logHandler()
                             )
                             summary.append(
@@ -400,6 +413,9 @@ final class AppViewModel: ObservableObject {
                     : "每个会话一个文件夹：文字记录.txt + 图片/音频/视频/表情 分目录。"
                 alertMessage = "已导出 \(summary.count) 项到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n\(tip)"
                 showAlert = true
+                if settings.openFolderAfterExport {
+                    openExportFolder()
+                }
             } else {
                 alertMessage = "部分导出完成（成功 \(summary.count)，失败 \(failures.count)）：\n\(base.path)\n\n成功：\n\(summary.joined(separator: "\n"))\n\n失败：\n\(failures.joined(separator: "\n"))"
                 showAlert = true

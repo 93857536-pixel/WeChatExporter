@@ -347,9 +347,9 @@ def test_versions_and_assets():
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     build_app = (ROOT / "build_app.sh").read_text(encoding="utf-8")
     csproj = (ROOT / "windows/WeChatExporter.Windows/WeChatExporter.Windows.csproj").read_text(encoding="utf-8")
-    check("CHANGELOG 含 2.7.0", "## [2.7.0]" in changelog)
-    check("build_app.sh 版本 2.7.0", 'APP_VERSION="${APP_VERSION:-2.7.0}"' in build_app)
-    check("Windows csproj 版本 2.7.0", "<Version>2.7.0</Version>" in csproj)
+    check("CHANGELOG 含 2.8.0", "## [2.8.0]" in changelog)
+    check("build_app.sh 版本 2.8.0", 'APP_VERSION="${APP_VERSION:-2.8.0}"' in build_app)
+    check("Windows csproj 版本 2.8.0", "<Version>2.8.0</Version>" in csproj)
 
     mac_cli = ROOT / "vendor/macos/wx-cli"
     win_cli = ROOT / "vendor/windows/wx.exe"
@@ -397,6 +397,8 @@ def test_feature_surface_files():
         "Sources/WeChatExporter/Services/EmojiExporter.swift",
         "Sources/WeChatExporter/Services/StickerPackExporter.swift",
         "Sources/WeChatExporter/Services/DatImageDecoder.swift",
+        "Sources/WeChatExporter/Models/AppSettings.swift",
+        "Sources/WeChatExporter/Views/SettingsView.swift",
         "Sources/WeChatExporter/Services/FolderBundleExporter.swift",
         "Sources/WeChatExporter/Models/ExportStyle.swift",
         "Sources/WeChatExporter/Services/WXGFTranscoder.swift",
@@ -407,6 +409,8 @@ def test_feature_surface_files():
         "windows/WeChatExporter.Windows/Services/WxCliService.cs",
         "windows/WeChatExporter.Windows/Services/SingleFileExporter.cs",
         "windows/WeChatExporter.Windows/Services/FolderBundleExporter.cs",
+        "windows/WeChatExporter.Windows/Services/AppSettings.cs",
+        "windows/WeChatExporter.Windows/SettingsWindow.xaml",
         "windows/WeChatExporter.Windows/Models/ExportStyle.cs",
         "windows/WeChatExporter.Windows/Services/ImageExporter.cs",
         "windows/WeChatExporter.Windows/Services/EmojiExporter.cs",
@@ -498,9 +502,19 @@ def test_folder_bundle_layout():
     swift_ui = (ROOT / "Sources/WeChatExporter/Views/ContentView.swift").read_text(encoding="utf-8")
     win_xaml = (ROOT / "windows/WeChatExporter.Windows/MainWindow.xaml").read_text(encoding="utf-8")
     mac_vm = (ROOT / "Sources/WeChatExporter/ViewModels/AppViewModel.swift").read_text(encoding="utf-8")
-    check("macOS UI 含导出方式选择", "exportStyle" in swift_ui and "分类文件夹" in swift_ui)
-    check("Windows UI 含分类文件夹", "分类文件夹" in win_xaml and "IsFolderBundleStyle" in win_xaml)
+    settings_swift = (ROOT / "Sources/WeChatExporter/Views/SettingsView.swift").read_text(encoding="utf-8")
+    app_settings_swift = (ROOT / "Sources/WeChatExporter/Models/AppSettings.swift").read_text(encoding="utf-8")
+    settings_win = (ROOT / "windows/WeChatExporter.Windows/SettingsWindow.xaml").read_text(encoding="utf-8")
+    app_settings_win = (ROOT / "windows/WeChatExporter.Windows/Services/AppSettings.cs").read_text(encoding="utf-8")
+    settings_win_cs = (ROOT / "windows/WeChatExporter.Windows/SettingsWindow.xaml.cs").read_text(encoding="utf-8")
+    credit = "@林琝淏科技集团有限公司出品"
+    check("macOS UI 含设置入口", "设置" in swift_ui and "showSettings" in swift_ui)
+    check("Windows UI 含设置入口", "Settings_Click" in win_xaml or "设置" in win_xaml)
     check("macOS 导出分支含 folderBundle", "folderBundle" in mac_vm and "FolderBundleExporter" in mac_vm)
+    check("设置页含出品标注", credit in app_settings_swift and "AppSettings.creditLine" in settings_swift)
+    check("Windows 设置含出品标注", credit in app_settings_win and ("CreditText" in settings_win or "AppSettings.CreditLine" in settings_win_cs))
+    check("设置含浅色深色", "浅色" in app_settings_swift and "深色" in app_settings_swift and "appearance" in settings_swift)
+    check("Windows 设置含主题", "AppearanceLight" in settings_win and "AppearanceDark" in settings_win)
 
 
 def main() -> int:

@@ -26,7 +26,13 @@ internal static class FolderBundleExporter
     private static readonly HashSet<string> VideoExts = new(StringComparer.OrdinalIgnoreCase)
         { "mp4", "mov", "m4v", "avi", "mkv", "webm" };
 
-    public static Result Write(string sourceDir, string contactName, string destinationDir, Action<string> log)
+    public static Result Write(
+        string sourceDir,
+        string contactName,
+        string destinationDir,
+        Action<string> log,
+        bool includeCsv = true,
+        bool includeJson = false)
     {
         var jsonPath = System.IO.Path.Combine(sourceDir, "chat.json");
         var txtPath = System.IO.Path.Combine(sourceDir, "chat.txt");
@@ -56,8 +62,11 @@ internal static class FolderBundleExporter
             System.IO.File.WriteAllText(textDest, BuildTextFromJson(jsonPath, contactName), Encoding.UTF8);
 
         var csvPath = System.IO.Path.Combine(sourceDir, "chat.csv");
-        if (System.IO.File.Exists(csvPath))
+        if (includeCsv && System.IO.File.Exists(csvPath))
             System.IO.File.Copy(csvPath, System.IO.Path.Combine(folder, "聊天记录.csv"), true);
+
+        if (includeJson && System.IO.File.Exists(jsonPath))
+            System.IO.File.Copy(jsonPath, System.IO.Path.Combine(folder, "chat.json"), true);
 
         var imageCount = 0;
         var audioCount = 0;
