@@ -248,7 +248,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public async Task ExportSelectedAsync()
     {
         if (IsBusy) return;
-        if (SelectedContacts.Count == 0)
+        // 快照当前选中项，避免导出过程中选中变化导致串到其他人。
+        var selected = SelectedContacts.ToList();
+        if (selected.Count == 0)
         {
             ShowError("请先在列表中选择联系人或群聊。");
             return;
@@ -257,6 +259,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsBusy = true;
         StatusText = "导出中…";
         var summary = new List<string>();
+        var failures = new List<string>();
         try
         {
             Directory.CreateDirectory(ExportPath);
@@ -279,8 +282,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             }
 
-            foreach (var contact in SelectedContacts.ToList())
+            for (var index = 0; index < selected.Count; index++)
             {
+                var contact = selected[index];
+                OperationProgress = (double)index / selected.Count;
+                OperationProgressLabel = $"正在导出 {contact.DisplayName}（{index + 1}/{selected.Count}）…";
+
                 var tempDir = Path.Combine(Path.GetTempPath(), $"WeChatExporter-{Guid.NewGuid():N}");
                 try
                 {
@@ -288,13 +295,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
                     summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
                 }
+                catch (Exception ex)
+                {
+                    failures.Add($"• {contact.DisplayName}：{ex.Message}");
+                    AppendLog($"导出失败：{contact.DisplayName} — {ex.Message}");
+                }
                 finally
                 {
                     try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { /* ignore */ }
                 }
             }
 
-            ShowAlert($"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
+            if (summary.Count == 0)
+            {
+                ShowError($"全部导出失败（共 {selected.Count} 个会话）：\n{string.Join('\n', failures)}");
+            }
+            else if (failures.Count == 0)
+            {
+                ShowAlert($"已导出 {summary.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
+            }
+            else
+            {
+                ShowAlert($"部分导出完成（成功 {summary.Count}，失败 {failures.Count}）：\n{ExportPath}\n\n成功：\n{string.Join('\n', summary)}\n\n失败：\n{string.Join('\n', failures)}");
+            }
         }
         catch (Exception ex)
         {
@@ -304,6 +327,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             IsBusy = false;
             StatusText = "就绪";
+            ClearProgress();
         }
     }
 

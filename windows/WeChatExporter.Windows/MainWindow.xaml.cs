@@ -26,6 +26,9 @@ public partial class MainWindow : Window
 
     private void ContactList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        // 导出/准备数据期间忽略选中变化，避免弹窗抢焦点导致选中被改写、下次导出串到其他人。
+        if (_viewModel.IsBusy) return;
+
         _viewModel.SelectedContacts.Clear();
         foreach (ContactItem item in ContactList.SelectedItems)
             _viewModel.SelectedContacts.Add(item);

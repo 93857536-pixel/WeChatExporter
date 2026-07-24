@@ -214,8 +214,9 @@ final class WxCliService {
 
     func export(contact: ContactItem, outputDir: URL, includeMedia: Bool = false, log: @escaping (String) -> Void) async throws -> Int {
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        let query = !contact.displayName.isEmpty ? contact.displayName : contact.id
-        log("导出：\(contact.displayName)\(includeMedia ? "（含媒体）" : "")")
+        // 必须优先用唯一 wxid / chatroom id，避免显示名模糊匹配到其他人的会话。
+        let query = Self.exportQuery(for: contact)
+        log("导出：\(contact.displayName) [\(query)]\(includeMedia ? "（含媒体）" : "")")
 
         var txtArgs = ["export", query, "--output", outputDir.path, "--format", "txt", "--all"]
         var jsonArgs = ["export", query, "--output", outputDir.path, "--format", "json", "--all"]
@@ -237,13 +238,57 @@ final class WxCliService {
             _ = await ImageExporter.exportImages(in: outputDir, log: log)
             Self.normalizeExportArtifacts(in: outputDir, log: log)
         }
-        let count = Self.countExportedMessages(in: outputDir)
-        if count > 0 {
-            log("共导出 \(count) 条消息")
-        } else {
-            log("警告：导出目录中未找到消息记录，请查看上方 wx-cli 日志")
+
+        if let talker = Self.exportedTalker(in: outputDir),
+           !talker.isEmpty,
+           talker.caseInsensitiveCompare(contact.id) != .orderedSame {
+            throw AppError.exportFailed(
+                "导出结果会话不匹配：期望 \(contact.id)，实际 \(talker)。请刷新会话列表后重新选择该联系人再导出。"
+            )
         }
+
+        let count = Self.countExportedMessages(in: outputDir)
+        guard count > 0 else {
+            throw AppError.exportFailed(
+                "未找到与 \(contact.displayName)（\(query)）的聊天记录。请确认该会话已在微信中打开并同步过消息，然后点击「刷新」后再试。"
+            )
+        }
+        log("共导出 \(count) 条消息")
         return count
+    }
+
+    /// 导出查询优先使用稳定唯一的 username（wxid / @chatroom），避免重名导致串会话。
+    static func exportQuery(for contact: ContactItem) -> String {
+        let id = contact.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !id.isEmpty { return id }
+        return contact.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func exportedTalker(in outputDir: URL) -> String? {
+        let chatJSON = outputDir.appendingPathComponent("chat.json")
+        guard let data = try? Data(contentsOf: chatJSON),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        if let talker = stringValue(root["talker"]), !talker.isEmpty { return talker }
+        if let conversation = root["conversation"] as? [String: Any] {
+            if let talker = stringValue(conversation["talker"]), !talker.isEmpty { return talker }
+            if let talker = stringValue(conversation["username"]), !talker.isEmpty { return talker }
+        }
+        if let exportInfo = root["export_info"] as? [String: Any],
+           let talker = stringValue(exportInfo["talker"]), !talker.isEmpty {
+            return talker
+        }
+        return nil
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return nil
     }
 
     /// wx-cli 实际输出为「联系人_日期.json」，统一复制为 chat.json / chat.txt 便于查看。
