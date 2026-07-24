@@ -161,8 +161,9 @@ public sealed class WxCliService
     {
         log ??= _ => { };
         Directory.CreateDirectory(outputDir);
-        var query = string.IsNullOrWhiteSpace(contact.DisplayName) ? contact.Id : contact.DisplayName;
-        log($"导出：{contact.DisplayName}{(includeMedia ? "（含媒体）" : "")}");
+        // 必须优先用唯一 wxid / chatroom id，避免显示名模糊匹配到其他人的会话。
+        var query = ExportQuery(contact);
+        log($"导出：{contact.DisplayName} [{query}]{(includeMedia ? "（含媒体）" : "")}");
 
         var txtPath = Path.Combine(outputDir, "chat.txt");
         var jsonPath = Path.Combine(outputDir, "chat.json");
@@ -203,18 +204,75 @@ public sealed class WxCliService
             await ImageExporter.ExportImagesAsync(outputDir, log, cancellationToken);
         }
 
+        var actualTalker = ReadExportedTalker(jsonPath);
+        if (!string.IsNullOrWhiteSpace(actualTalker)
+            && !string.Equals(actualTalker, contact.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"导出结果会话不匹配：期望 {contact.Id}，实际 {actualTalker}。请刷新会话列表后重新选择该联系人再导出。");
+        }
+
         var count = await WriteCsvFromJsonAsync(jsonPath, csvPath);
         if (count == 0)
             count = CountMessagesInJsonFile(jsonPath);
         if (count == 0 && File.Exists(txtPath))
             count = CountTxtMessages(txtPath);
 
-        if (count > 0)
-            log($"共导出 {count} 条消息");
-        else
-            log("警告：导出目录中未找到消息记录，请查看上方 wx-cli 日志");
+        if (count <= 0)
+        {
+            throw new InvalidOperationException(
+                $"未找到与 {contact.DisplayName}（{query}）的聊天记录。请确认该会话已在微信中打开并同步过消息，然后点击「刷新」后再试。");
+        }
 
+        log($"共导出 {count} 条消息");
         return count;
+    }
+
+    /// <summary>导出查询优先使用稳定唯一的 username（wxid / @chatroom）。</summary>
+    internal static string ExportQuery(ContactItem contact)
+    {
+        if (!string.IsNullOrWhiteSpace(contact.Id))
+            return contact.Id.Trim();
+        return (contact.DisplayName ?? "").Trim();
+    }
+
+    private static string? ReadExportedTalker(string jsonPath)
+    {
+        if (!File.Exists(jsonPath)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(jsonPath));
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            if (TryGetString(root, "talker", out var talker)) return talker;
+            if (root.TryGetProperty("conversation", out var conversation)
+                && conversation.ValueKind == JsonValueKind.Object)
+            {
+                if (TryGetString(conversation, "talker", out talker)) return talker;
+                if (TryGetString(conversation, "username", out talker)) return talker;
+            }
+            if (root.TryGetProperty("export_info", out var exportInfo)
+                && exportInfo.ValueKind == JsonValueKind.Object
+                && TryGetString(exportInfo, "talker", out talker))
+            {
+                return talker;
+            }
+        }
+        catch
+        {
+            // ignore malformed json; caller will fail on empty message count
+        }
+        return null;
+    }
+
+    private static bool TryGetString(JsonElement element, string name, out string value)
+    {
+        value = "";
+        if (!element.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.String)
+            return false;
+        value = prop.GetString()?.Trim() ?? "";
+        return !string.IsNullOrEmpty(value);
     }
 
     private static async Task RunProgressTicker(

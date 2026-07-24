@@ -20,6 +20,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isBusy;
     private bool _isDataReady;
     private bool _includeMedia;
+    private ExportStyle _exportStyle = ExportStyle.SingleHtml;
+    private bool _includeStickerGallery = true;
+    private bool _folderIncludeCsv = true;
+    private bool _folderIncludeJson;
+    private bool _openFolderAfterExport;
     private string? _alertMessage;
     private double? _operationProgress;
     private string _operationProgressLabel = "";
@@ -27,9 +32,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public MainViewModel(WxCliService wxCli)
     {
         _wxCli = wxCli;
-        _exportPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Downloads", "微信聊天记录导出");
+        var store = AppSettings.Shared;
+        _exportPath = string.IsNullOrWhiteSpace(store.ExportPath)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "微信聊天记录导出")
+            : store.ExportPath;
+        _includeMedia = store.IncludeMedia;
+        _exportStyle = store.ExportStyle;
+        _includeStickerGallery = store.IncludeStickerGallery;
+        _folderIncludeCsv = store.FolderIncludeCsv;
+        _folderIncludeJson = store.FolderIncludeJson;
+        _openFolderAfterExport = store.OpenFolderAfterExport;
+
         Contacts = [];
         Logs = [];
         ContactsView = CollectionViewSource.GetDefaultView(Contacts);
@@ -37,8 +50,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsRunningAsAdmin = PlatformHelper.IsRunningAsAdministrator();
         AppendLog(wxCli.IsBundled ? "使用内置 wx-cli（即装即用）" : "使用系统 wx-cli");
         if (!IsRunningAsAdmin)
-            AppendLog("提示：首次「准备数据」建议以管理员身份运行（可点击下方按钮）");
+            AppendLog("提示：首次「准备数据」建议以管理员身份运行（可在设置或下方按钮提权）");
         _ = BootstrapAsync();
+    }
+
+    public void ApplySettingsFromStore()
+    {
+        var store = AppSettings.Shared;
+        ExportPath = store.ExportPath;
+        IncludeMedia = store.IncludeMedia;
+        ExportStyle = store.ExportStyle;
+        IncludeStickerGallery = store.IncludeStickerGallery;
+        FolderIncludeCsv = store.FolderIncludeCsv;
+        FolderIncludeJson = store.FolderIncludeJson;
+        OpenFolderAfterExport = store.OpenFolderAfterExport;
+        OnPropertyChanged(nameof(ExportStyleSummary));
     }
 
     public ObservableCollection<ContactItem> Contacts { get; }
@@ -129,6 +155,86 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
         }
     }
+
+    public bool IncludeStickerGallery
+    {
+        get => _includeStickerGallery;
+        set
+        {
+            if (_includeStickerGallery == value) return;
+            _includeStickerGallery = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool FolderIncludeCsv
+    {
+        get => _folderIncludeCsv;
+        set
+        {
+            if (_folderIncludeCsv == value) return;
+            _folderIncludeCsv = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool FolderIncludeJson
+    {
+        get => _folderIncludeJson;
+        set
+        {
+            if (_folderIncludeJson == value) return;
+            _folderIncludeJson = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool OpenFolderAfterExport
+    {
+        get => _openFolderAfterExport;
+        set
+        {
+            if (_openFolderAfterExport == value) return;
+            _openFolderAfterExport = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ExportStyle ExportStyle
+    {
+        get => _exportStyle;
+        set
+        {
+            if (_exportStyle == value) return;
+            _exportStyle = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsSingleHtmlStyle));
+            OnPropertyChanged(nameof(IsFolderBundleStyle));
+            OnPropertyChanged(nameof(ExportStyleDetail));
+            OnPropertyChanged(nameof(ShowIncludeMediaToggle));
+            OnPropertyChanged(nameof(ExportStyleSummary));
+        }
+    }
+
+    public bool IsSingleHtmlStyle
+    {
+        get => ExportStyle == ExportStyle.SingleHtml;
+        set { if (value) ExportStyle = ExportStyle.SingleHtml; }
+    }
+
+    public bool IsFolderBundleStyle
+    {
+        get => ExportStyle == ExportStyle.FolderBundle;
+        set { if (value) ExportStyle = ExportStyle.FolderBundle; }
+    }
+
+    public string ExportStyleDetail => ExportStyleInfo.Detail(ExportStyle);
+
+    public string ExportStyleSummary => $"当前：{ExportStyleInfo.Title(ExportStyle)} · {ExportStyleDetail}";
+
+    public bool ShowIncludeMediaToggle => ExportStyle == ExportStyle.SingleHtml;
+
+    public string CreditLine => AppSettings.CreditLine;
 
     public string StatusText
     {
@@ -248,7 +354,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public async Task ExportSelectedAsync()
     {
         if (IsBusy) return;
-        if (SelectedContacts.Count == 0)
+        // 快照当前选中项，避免导出过程中选中变化导致串到其他人。
+        var selected = SelectedContacts.ToList();
+        if (selected.Count == 0)
         {
             ShowError("请先在列表中选择联系人或群聊。");
             return;
@@ -257,10 +365,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsBusy = true;
         StatusText = "导出中…";
         var summary = new List<string>();
+        var failures = new List<string>();
         try
         {
             Directory.CreateDirectory(ExportPath);
-            if (IncludeMedia)
+            var style = ExportStyle;
+            var wantMedia = style == ExportStyle.FolderBundle || IncludeMedia;
+            var wantStickers = IncludeStickerGallery && wantMedia;
+
+            if (wantStickers)
             {
                 var stickerTemp = Path.Combine(Path.GetTempPath(), $"WeChatExporter-stickers-{Guid.NewGuid():N}");
                 try
@@ -279,14 +392,38 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             }
 
-            foreach (var contact in SelectedContacts.ToList())
+            for (var index = 0; index < selected.Count; index++)
             {
+                var contact = selected[index];
+                OperationProgress = (double)index / selected.Count;
+                OperationProgressLabel = $"正在导出 {contact.DisplayName}（{index + 1}/{selected.Count}）…";
+
                 var tempDir = Path.Combine(Path.GetTempPath(), $"WeChatExporter-{Guid.NewGuid():N}");
                 try
                 {
-                    var count = await _wxCli.ExportAsync(contact, tempDir, IncludeMedia, AppendLog);
-                    var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
-                    summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
+                    var count = await _wxCli.ExportAsync(contact, tempDir, wantMedia, AppendLog);
+                    if (style == ExportStyle.FolderBundle)
+                    {
+                        var result = FolderBundleExporter.Write(
+                            tempDir,
+                            contact.DisplayName,
+                            ExportPath,
+                            AppendLog,
+                            FolderIncludeCsv,
+                            FolderIncludeJson);
+                        summary.Add(
+                            $"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(result.FolderPath)}/（图{result.ImageCount}/音{result.AudioCount}/视{result.VideoCount}）");
+                    }
+                    else
+                    {
+                        var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
+                        summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"• {contact.DisplayName}：{ex.Message}");
+                    AppendLog($"导出失败：{contact.DisplayName} — {ex.Message}");
                 }
                 finally
                 {
@@ -294,7 +431,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             }
 
-            ShowAlert($"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
+            if (summary.Count == 0)
+            {
+                ShowError($"全部导出失败（共 {selected.Count} 个会话）：\n{string.Join('\n', failures)}");
+            }
+            else if (failures.Count == 0)
+            {
+                var tip = style == ExportStyle.SingleHtml
+                    ? "用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。"
+                    : "每个会话一个文件夹：文字记录.txt + 图片/音频/视频/表情 分目录。";
+                ShowAlert($"已导出 {summary.Count} 项到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n{tip}");
+                if (OpenFolderAfterExport)
+                    OpenExportFolder();
+            }
+            else
+            {
+                ShowAlert($"部分导出完成（成功 {summary.Count}，失败 {failures.Count}）：\n{ExportPath}\n\n成功：\n{string.Join('\n', summary)}\n\n失败：\n{string.Join('\n', failures)}");
+            }
         }
         catch (Exception ex)
         {
@@ -304,6 +457,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             IsBusy = false;
             StatusText = "就绪";
+            ClearProgress();
         }
     }
 
@@ -315,7 +469,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             InitialDirectory = Directory.Exists(ExportPath) ? ExportPath : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
         };
         if (dialog.ShowDialog() == true)
+        {
             ExportPath = dialog.FolderName;
+            AppSettings.Shared.ExportPath = dialog.FolderName;
+            AppSettings.Shared.Save();
+        }
     }
 
     public void OpenExportFolder()

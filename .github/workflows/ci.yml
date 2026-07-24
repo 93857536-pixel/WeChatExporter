@@ -7,6 +7,18 @@ on:
     branches: [main]
 
 jobs:
+  offline-tests:
+    name: Offline feature tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run offline feature suite
+        run: |
+          curl -fsSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0
+          echo "$HOME/.dotnet" >> "$GITHUB_PATH"
+          export PATH="$HOME/.dotnet:$PATH"
+          python3 scripts/test_all_features.py
+
   build-macos:
     name: Build macOS
     runs-on: macos-14

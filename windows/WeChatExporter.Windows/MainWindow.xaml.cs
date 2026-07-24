@@ -22,10 +22,14 @@ public partial class MainWindow : Window
 
         _viewModel = new MainViewModel(wxCli);
         DataContext = _viewModel;
+        ThemeManager.Apply(AppSettings.Shared.Appearance, this);
     }
 
     private void ContactList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        // 导出/准备数据期间忽略选中变化，避免弹窗抢焦点导致选中被改写、下次导出串到其他人。
+        if (_viewModel.IsBusy) return;
+
         _viewModel.SelectedContacts.Clear();
         foreach (ContactItem item in ContactList.SelectedItems)
             _viewModel.SelectedContacts.Add(item);
@@ -41,11 +45,12 @@ public partial class MainWindow : Window
     private async void Export_Click(object sender, RoutedEventArgs e)
         => await _viewModel.ExportSelectedAsync();
 
-    private void ChooseFolder_Click(object sender, RoutedEventArgs e)
-        => _viewModel.ChooseExportFolder();
-
-    private void OpenFolder_Click(object sender, RoutedEventArgs e)
-        => _viewModel.OpenExportFolder();
+    private void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new SettingsWindow(_viewModel) { Owner = this };
+        win.ShowDialog();
+        ThemeManager.Apply(AppSettings.Shared.Appearance, this);
+    }
 
     private void RestartAdmin_Click(object sender, RoutedEventArgs e)
         => _viewModel.RestartAsAdministrator();

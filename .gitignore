@@ -12,6 +12,8 @@ windows/**/bin/
 windows/**/obj/
 windows/publish/
 windows/dist/
+scripts/**/bin/
+scripts/**/obj/
 
 # Xcode
 DerivedData/
@@ -36,3 +38,5 @@ all_keys.json
 *.swp
 *~
 assets/dmg-preview.png
+**/__pycache__/
+*.pyc

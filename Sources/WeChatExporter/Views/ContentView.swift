@@ -9,6 +9,7 @@ enum AppTheme {
 
 struct ContentView: View {
     @ObservedObject var model: AppViewModel
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         NavigationSplitView {
@@ -18,10 +19,16 @@ struct ContentView: View {
             detailPanel
         }
         .frame(minWidth: 980, minHeight: 680)
+        .preferredColorScheme(settings.appearance.colorScheme)
         .alert("提示", isPresented: $model.showAlert) {
             Button("好的", role: .cancel) {}
         } message: {
             Text(model.alertMessage ?? "")
+        }
+        .sheet(isPresented: $model.showSettings) {
+            NavigationStack {
+                SettingsView(model: model, settings: settings)
+            }
         }
         .task {
             await model.startIfNeeded()
@@ -67,7 +74,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("导出工具")
                         .font(.title3.weight(.semibold))
-                    Text("选择联系人后导出 TXT / CSV / JSON")
+                    Text("当前：\(settings.exportStyle.title)")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.subtleText)
                 }
@@ -106,6 +113,12 @@ struct ContentView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
             Button {
+                model.showSettings = true
+            } label: {
+                Label("设置", systemImage: "gearshape.fill")
+            }
+
+            Button {
                 Task { await model.prepareData() }
             } label: {
                 Label("准备数据", systemImage: "key.fill")
@@ -135,26 +148,21 @@ struct ContentView: View {
             readinessBanner
 
             GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("导出设置", systemImage: "slider.horizontal.3")
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("当前导出配置", systemImage: "slider.horizontal.3")
                         .font(.headline)
-                    Toggle("同时导出图片、表情、全部表情包等媒体并内嵌到 HTML（体积更大，耗时更长）", isOn: $model.includeMedia)
-                        .toggleStyle(.switch)
+                    Text("方式：\(settings.exportStyle.title)")
+                    Text(settings.exportStyle.detail)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                    Text("目录：\(settings.exportPath)")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .lineLimit(2)
+                    Button("打开设置…") { model.showSettings = true }
+                        .buttonStyle(.bordered)
                 }
-                .padding(4)
-            }
-
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("导出目录", systemImage: "folder.fill")
-                        .font(.headline)
-                    HStack {
-                        TextField("导出路径", text: $model.exportPath)
-                            .textFieldStyle(.roundedBorder)
-                        Button("选择…") { model.chooseExportFolder() }
-                        Button("打开") { model.openExportFolder() }
-                    }
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(4)
             }
 
@@ -164,8 +172,8 @@ struct ContentView: View {
                         .font(.headline)
                     Text("1. 首次使用点击「准备数据」（会重启微信）")
                     Text("2. 在左侧列表中选择一个或多个联系人")
-                    Text("3. 点击「导出选中」")
-                    Text("4. 路径由系统自动检测，无需手动配置")
+                    Text("3. 在「设置」中选择导出方式与主题等选项")
+                    Text("4. 点击「导出选中」")
                         .foregroundStyle(AppTheme.subtleText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,6 +203,11 @@ struct ContentView: View {
                 }
                 .padding(4)
             }
+
+            Text(AppSettings.creditLine)
+                .font(.caption2)
+                .foregroundStyle(AppTheme.subtleText)
+                .frame(maxWidth: .infinity)
         }
         .padding(20)
         .background(Color(nsColor: .windowBackgroundColor))

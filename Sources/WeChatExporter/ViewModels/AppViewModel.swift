@@ -11,25 +11,32 @@ final class AppViewModel: ObservableObject {
     @Published var contacts: [ContactItem] = []
     @Published var selectedIDs: Set<String> = []
     @Published var searchText = ""
-    @Published var exportPath: String = ""
     @Published var logs: [String] = []
     @Published var isBusy = false
     @Published var statusText = "就绪"
     @Published var isDataReady = false
-    @Published var includeMedia = false
     @Published var alertMessage: String?
     @Published var showAlert = false
+    @Published var showSettings = false
     @Published var operationProgress: Double?
     @Published var operationProgressLabel = ""
 
+    let settings = AppSettings.shared
     private let backend: Backend
     private var didBootstrap = false
 
+    var exportPath: String {
+        get { settings.exportPath }
+        set { settings.exportPath = newValue }
+    }
+
     init() {
-        let defaultExport = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Downloads/微信聊天记录导出", isDirectory: true)
-            .path
-        exportPath = defaultExport
+        let defaultExport = settings.exportPath
+        if defaultExport.isEmpty {
+            settings.exportPath = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Downloads/微信聊天记录导出", isDirectory: true)
+                .path
+        }
 
         if let wxCli = WxCliService() {
             backend = .wxCli(wxCli)
@@ -40,7 +47,9 @@ final class AppViewModel: ObservableObject {
         do {
             let paths = try AppPaths.detect()
             backend = .native(paths)
-            exportPath = paths.exportDir.path
+            if settings.exportPath.contains("Downloads/微信聊天记录导出") {
+                settings.exportPath = paths.exportDir.path
+            }
             appendLog("账号：\(paths.accountID)")
         } catch {
             backend = .native(
@@ -51,7 +60,7 @@ final class AppViewModel: ObservableObject {
                     decryptedDir: URL(fileURLWithPath: "/"),
                     keysFile: URL(fileURLWithPath: "/"),
                     rawKeyFile: URL(fileURLWithPath: "/"),
-                    exportDir: URL(fileURLWithPath: defaultExport, isDirectory: true)
+                    exportDir: URL(fileURLWithPath: settings.exportPath, isDirectory: true)
                 )
             )
             presentError(error.localizedDescription)
@@ -267,7 +276,9 @@ final class AppViewModel: ObservableObject {
 
     func exportSelected() async {
         guard !isBusy else { return }
-        let selected = contacts.filter { selectedIDs.contains($0.id) }
+        // 按当前选中 ID 快照联系人，避免导出过程中列表刷新/选中变化导致串到其他人。
+        let selectedIDsSnapshot = selectedIDs
+        let selected = contacts.filter { selectedIDsSnapshot.contains($0.id) }
         guard !selected.isEmpty else {
             presentError("请先在列表中选择联系人或群聊。")
             return
@@ -278,14 +289,23 @@ final class AppViewModel: ObservableObject {
         defer {
             isBusy = false
             statusText = "就绪"
+            clearProgress()
         }
 
         let base = URL(fileURLWithPath: exportPath.expandingTildeInPath, isDirectory: true)
         var summary: [String] = []
+        var failures: [String] = []
+        let style = settings.exportStyle
+        // 分类文件夹模式需要媒体文件才能分目录；单文件模式仍尊重开关。
+        let wantMedia = style == .folderBundle ? true : settings.includeMedia
+        let wantStickers = settings.includeStickerGallery && wantMedia
+
         do {
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+
             switch backend {
             case .wxCli(let wxCli):
-                if includeMedia {
+                if wantStickers {
                     let stickerTemp = FileManager.default.temporaryDirectory
                         .appendingPathComponent("WeChatExporter-stickers-\(UUID().uuidString)", isDirectory: true)
                     defer { try? FileManager.default.removeItem(at: stickerTemp) }
@@ -295,49 +315,111 @@ final class AppViewModel: ObservableObject {
                     }
                 }
 
-                for contact in selected {
+                for (index, contact) in selected.enumerated() {
+                    operationProgress = Double(index) / Double(selected.count)
+                    operationProgressLabel = "正在导出 \(contact.displayName)（\(index + 1)/\(selected.count)）…"
                     let tempDir = FileManager.default.temporaryDirectory
                         .appendingPathComponent("WeChatExporter-\(UUID().uuidString)", isDirectory: true)
                     defer { try? FileManager.default.removeItem(at: tempDir) }
 
-                    let count = try await wxCli.export(
-                        contact: contact,
-                        outputDir: tempDir,
-                        includeMedia: includeMedia,
-                        log: logHandler()
-                    )
-                    let htmlURL = try SingleFileExporter.writeHTML(
-                        from: tempDir,
-                        contactName: contact.displayName,
-                        into: base
-                    )
-                    summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                    do {
+                        let count = try await wxCli.export(
+                            contact: contact,
+                            outputDir: tempDir,
+                            includeMedia: wantMedia,
+                            log: logHandler()
+                        )
+                        switch style {
+                        case .singleHTML:
+                            let htmlURL = try SingleFileExporter.writeHTML(
+                                from: tempDir,
+                                contactName: contact.displayName,
+                                into: base
+                            )
+                            summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                        case .folderBundle:
+                            let result = try FolderBundleExporter.write(
+                                from: tempDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                includeCSV: settings.folderIncludeCSV,
+                                includeJSON: settings.folderIncludeJSON,
+                                log: logHandler()
+                            )
+                            summary.append(
+                                "• \(contact.displayName)：\(count) 条 → \(result.folderURL.lastPathComponent)/（图\(result.imageCount)/音\(result.audioCount)/视\(result.videoCount)）"
+                            )
+                        }
+                    } catch {
+                        let message = error.localizedDescription
+                        failures.append("• \(contact.displayName)：\(message)")
+                        appendLog("导出失败：\(contact.displayName) — \(message)")
+                    }
                 }
             case .native(let paths):
                 guard paths.isDecryptedHealthy else {
                     throw AppError.exportFailed("请先点击「准备数据」")
                 }
-                for contact in selected {
+                for (index, contact) in selected.enumerated() {
+                    operationProgress = Double(index) / Double(selected.count)
+                    operationProgressLabel = "正在导出 \(contact.displayName)（\(index + 1)/\(selected.count)）…"
                     let tempDir = FileManager.default.temporaryDirectory
                         .appendingPathComponent("WeChatExporter-\(UUID().uuidString)", isDirectory: true)
                     defer { try? FileManager.default.removeItem(at: tempDir) }
 
-                    appendLog("导出：\(contact.displayName)")
-                    let count = try ChatExporter.export(
-                        contact: contact,
-                        decryptedDir: paths.decryptedDir,
-                        outputDir: tempDir
-                    )
-                    let htmlURL = try SingleFileExporter.writeHTML(
-                        from: tempDir,
-                        contactName: contact.displayName,
-                        into: base
-                    )
-                    summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                    do {
+                        appendLog("导出：\(contact.displayName) [\(contact.id)]")
+                        let count = try ChatExporter.export(
+                            contact: contact,
+                            decryptedDir: paths.decryptedDir,
+                            outputDir: tempDir
+                        )
+                        switch style {
+                        case .singleHTML:
+                            let htmlURL = try SingleFileExporter.writeHTML(
+                                from: tempDir,
+                                contactName: contact.displayName,
+                                into: base
+                            )
+                            summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                        case .folderBundle:
+                            let result = try FolderBundleExporter.write(
+                                from: tempDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                includeCSV: settings.folderIncludeCSV,
+                                includeJSON: settings.folderIncludeJSON,
+                                log: logHandler()
+                            )
+                            summary.append(
+                                "• \(contact.displayName)：\(count) 条 → \(result.folderURL.lastPathComponent)/"
+                            )
+                        }
+                    } catch {
+                        let message = error.localizedDescription
+                        failures.append("• \(contact.displayName)：\(message)")
+                        appendLog("导出失败：\(contact.displayName) — \(message)")
+                    }
                 }
             }
-            alertMessage = "已导出 \(selected.count) 个单文件到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。"
-            showAlert = true
+
+            if summary.isEmpty {
+                presentError(
+                    "全部导出失败（共 \(selected.count) 个会话）：\n\(failures.joined(separator: "\n"))"
+                )
+            } else if failures.isEmpty {
+                let tip = style == .singleHTML
+                    ? "用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。"
+                    : "每个会话一个文件夹：文字记录.txt + 图片/音频/视频/表情 分目录。"
+                alertMessage = "已导出 \(summary.count) 项到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n\(tip)"
+                showAlert = true
+                if settings.openFolderAfterExport {
+                    openExportFolder()
+                }
+            } else {
+                alertMessage = "部分导出完成（成功 \(summary.count)，失败 \(failures.count)）：\n\(base.path)\n\n成功：\n\(summary.joined(separator: "\n"))\n\n失败：\n\(failures.joined(separator: "\n"))"
+                showAlert = true
+            }
         } catch {
             presentError(error.localizedDescription)
         }
