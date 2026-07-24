@@ -2,13 +2,14 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>WeChatExporter</AssemblyName>
     <RootNamespace>WeChatExporter</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>2.6.2</Version>
+    <Version>2.9.0</Version>
     <Company>WeChatExporter</Company>
     <Product>微信聊天记录导出</Product>
     <Description>Windows 版微信聊天记录导出工具</Description>

@@ -20,6 +20,20 @@ public sealed class WxCliService
         IsBundled = isBundled;
     }
 
+    public sealed class ExportOptions
+    {
+        public bool IncludeMedia { get; init; }
+        public DateTime? Since { get; init; }
+        public DateTime? Until { get; init; }
+        public ChatJsonFilterOptions FilterOptions { get; init; } = new();
+        public bool MapGroupNicknames { get; init; } = true;
+        public bool EnableSpeechToText { get; init; }
+        public bool AllowEmptyResults { get; init; }
+        public Action<double, string>? Progress { get; init; }
+    }
+
+    public sealed record EnvironmentCheckResult(bool Ok, string Report);
+
     public static WxCliService? TryCreate()
     {
         var path = LocateExecutable();
@@ -158,63 +172,242 @@ public sealed class WxCliService
         bool includeMedia = false,
         Action<string>? log = null,
         CancellationToken cancellationToken = default)
+        => await ExportAsync(
+            contact,
+            outputDir,
+            new ExportOptions { IncludeMedia = includeMedia },
+            log,
+            cancellationToken);
+
+    public async Task<int> ExportAsync(
+        ContactItem contact,
+        string outputDir,
+        ExportOptions options,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
     {
         log ??= _ => { };
         Directory.CreateDirectory(outputDir);
-        var query = string.IsNullOrWhiteSpace(contact.DisplayName) ? contact.Id : contact.DisplayName;
-        log($"导出：{contact.DisplayName}{(includeMedia ? "（含媒体）" : "")}");
+        // 必须优先用唯一 wxid / chatroom id，避免显示名模糊匹配到其他人的会话。
+        var query = ExportQuery(contact);
+        log($"导出：{contact.DisplayName} [{query}]{(options.IncludeMedia ? "（含媒体）" : "")}");
+        options.Progress?.Invoke(0.05, "拉取消息…");
 
         var txtPath = Path.Combine(outputDir, "chat.txt");
         var jsonPath = Path.Combine(outputDir, "chat.json");
         var csvPath = Path.Combine(outputDir, "chat.csv");
 
-        await RunAsync([
+        var txtArgs = new List<string>
+        {
             "export", query,
             "--format", "txt",
             "-o", txtPath,
             "--limit", "999999"
-        ], null, log, cancellationToken);
+        };
+        AddDateArgs(txtArgs, options);
+        await RunAsync(txtArgs, null, log, cancellationToken);
 
-        await RunAsync([
+        options.Progress?.Invoke(0.35, "拉取 JSON…");
+        var jsonArgs = new List<string>
+        {
             "export", query,
             "--format", "json",
             "-o", jsonPath,
             "--limit", "999999"
-        ], null, log, cancellationToken);
+        };
+        AddDateArgs(jsonArgs, options);
+        await RunAsync(jsonArgs, null, log, cancellationToken);
 
-        if (includeMedia)
+        if (options.IncludeMedia)
         {
             var mdPath = Path.Combine(outputDir, "chat.md");
             try
             {
-                await RunAsync([
+                var mdArgs = new List<string>
+                {
                     "export", query,
                     "--format", "markdown",
                     "-o", mdPath,
                     "--limit", "999999"
-                ], null, log, cancellationToken);
+                };
+                AddDateArgs(mdArgs, options);
+                await RunAsync(mdArgs, null, log, cancellationToken);
             }
             catch (Exception ex)
             {
                 log($"媒体导出提示：Markdown/附件导出未完成（{ex.Message}）");
             }
 
+            options.Progress?.Invoke(0.60, "导出媒体…");
             await EmojiExporter.ExportEmojisAsync(outputDir, log, cancellationToken);
             await ImageExporter.ExportImagesAsync(outputDir, log, cancellationToken);
         }
 
+        var actualTalker = ReadExportedTalker(jsonPath);
+        if (!string.IsNullOrWhiteSpace(actualTalker)
+            && !string.Equals(actualTalker, contact.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"导出结果会话不匹配：期望 {contact.Id}，实际 {actualTalker}。请刷新会话列表后重新选择该联系人再导出。");
+        }
+
+        options.Progress?.Invoke(0.70, "应用过滤…");
+        if (options.MapGroupNicknames
+            && (contact.Kind == ContactKind.Group || contact.Id.Contains("@chatroom", StringComparison.OrdinalIgnoreCase)))
+        {
+            options.Progress?.Invoke(0.76, "映射群昵称…");
+            var members = await LoadGroupMembersAsync(contact.Id, log, cancellationToken);
+            ChatJsonProcessor.ApplyNicknameMap(jsonPath, members, log);
+        }
+
+        if (options.EnableSpeechToText)
+        {
+            options.Progress?.Invoke(0.84, "语音转写…");
+            log("Windows 语音转写暂未接入，已跳过；已保留语音文件用于后续处理。");
+            ChatJsonProcessor.InjectVoiceTranscripts(jsonPath, new Dictionary<string, string>(), log);
+        }
+
+        var filteredCount = ChatJsonProcessor.ApplyFilters(jsonPath, options.FilterOptions, log);
+        options.Progress?.Invoke(0.95, "校验消息…");
         var count = await WriteCsvFromJsonAsync(jsonPath, csvPath);
-        if (count == 0)
+        if (count == 0 && filteredCount > 0)
+            count = filteredCount;
+        if (count == 0 && !options.AllowEmptyResults)
             count = CountMessagesInJsonFile(jsonPath);
-        if (count == 0 && File.Exists(txtPath))
+        if (count == 0 && !options.AllowEmptyResults && File.Exists(txtPath))
             count = CountTxtMessages(txtPath);
 
-        if (count > 0)
-            log($"共导出 {count} 条消息");
-        else
-            log("警告：导出目录中未找到消息记录，请查看上方 wx-cli 日志");
+        if (count <= 0 && !options.AllowEmptyResults)
+        {
+            throw new InvalidOperationException(
+                $"未找到与 {contact.DisplayName}（{query}）的聊天记录。请确认该会话已在微信中打开并同步过消息，然后点击「刷新」后再试。");
+        }
 
+        log($"共导出 {count} 条消息");
+        options.Progress?.Invoke(1.0, "完成");
         return count;
+    }
+
+    public async Task<EnvironmentCheckResult> EnvironmentCheckAsync(
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        log ??= _ => { };
+        var lines = new List<string>();
+        var isAdmin = PlatformHelper.IsRunningAsAdministrator();
+        lines.Add(isAdmin ? "✓ 已以管理员身份运行" : "• 未以管理员身份运行（首次准备数据建议管理员权限）");
+        lines.Add(File.Exists(ExecutablePath)
+            ? $"✓ wx.exe 已找到：{ExecutablePath}"
+            : "✗ 未找到 wx.exe");
+
+        var daemonOk = false;
+        try
+        {
+            var status = await RunAsync(["daemon", "status"], 30, log, cancellationToken);
+            daemonOk = status.Contains("ready", StringComparison.OrdinalIgnoreCase)
+                       || status.Contains("running", StringComparison.OrdinalIgnoreCase);
+            lines.Add(daemonOk ? "✓ wx-cli daemon 正常" : $"• wx-cli daemon 状态：{OneLine(status)}");
+        }
+        catch (Exception ex)
+        {
+            lines.Add($"✗ wx-cli daemon 检测失败：{ex.Message}");
+        }
+
+        var wxExe = LocateWeChatExe();
+        lines.Add(wxExe is not null ? $"✓ 已检测到微信：{wxExe}" : "• 未在常见路径检测到 WeChat.exe（请确认微信 PC 版已安装并登录）");
+
+        var ffmpeg = LocateOnPath("ffmpeg.exe") ?? LocateOnPath("ffmpeg");
+        lines.Add(ffmpeg is not null ? $"✓ 已检测到 ffmpeg：{ffmpeg}" : "• 未检测到 ffmpeg（可选安装以改善音视频转码）");
+
+        var report = string.Join(Environment.NewLine, lines);
+        return new EnvironmentCheckResult(File.Exists(ExecutablePath) && daemonOk, report);
+    }
+
+    public async Task<Dictionary<string, string>> LoadGroupMembersAsync(
+        string chatroomId,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        log ??= _ => { };
+        var id = (chatroomId ?? "").Trim();
+        if (string.IsNullOrEmpty(id)) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var args in new[]
+                 {
+                     new[] { "members", id, "--json" },
+                     new[] { "members", id, "--format", "json" },
+                     new[] { "chatrooms", "--json", "-n", "5000" }
+                 })
+        {
+            try
+            {
+                var output = await RunAsync(args, 120, log, cancellationToken);
+                var parsed = ParseMembers(output, id);
+                if (parsed.Count > 0)
+                    return parsed;
+            }
+            catch (Exception ex)
+            {
+                log($"群成员查询提示：{string.Join(' ', args)} 未完成（{ex.Message}）");
+            }
+        }
+
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>导出查询优先使用稳定唯一的 username（wxid / @chatroom）。</summary>
+    internal static string ExportQuery(ContactItem contact)
+    {
+        if (!string.IsNullOrWhiteSpace(contact.Id))
+            return contact.Id.Trim();
+        return (contact.DisplayName ?? "").Trim();
+    }
+
+    private static void AddDateArgs(List<string> args, ExportOptions options)
+    {
+        if (options.Since is DateTime since)
+            args.AddRange(["--since", since.ToString("yyyy-MM-dd")]);
+        if (options.Until is DateTime until)
+            args.AddRange(["--until", until.ToString("yyyy-MM-dd")]);
+    }
+
+    private static string? ReadExportedTalker(string jsonPath)
+    {
+        if (!File.Exists(jsonPath)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(jsonPath));
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            if (TryGetString(root, "talker", out var talker)) return talker;
+            if (root.TryGetProperty("conversation", out var conversation)
+                && conversation.ValueKind == JsonValueKind.Object)
+            {
+                if (TryGetString(conversation, "talker", out talker)) return talker;
+                if (TryGetString(conversation, "username", out talker)) return talker;
+            }
+            if (root.TryGetProperty("export_info", out var exportInfo)
+                && exportInfo.ValueKind == JsonValueKind.Object
+                && TryGetString(exportInfo, "talker", out talker))
+            {
+                return talker;
+            }
+        }
+        catch
+        {
+            // ignore malformed json; caller will fail on empty message count
+        }
+        return null;
+    }
+
+    private static bool TryGetString(JsonElement element, string name, out string value)
+    {
+        value = "";
+        if (!element.TryGetProperty(name, out var prop) || prop.ValueKind != JsonValueKind.String)
+            return false;
+        value = prop.GetString()?.Trim() ?? "";
+        return !string.IsNullOrEmpty(value);
     }
 
     private static async Task RunProgressTicker(
@@ -241,6 +434,114 @@ public sealed class WxCliService
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Path.Combine(home, ".wx-cli", "config.json");
+    }
+
+    private static Dictionary<string, string> ParseMembers(string output, string chatroomId)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var json = ExtractJson(output);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            JsonElement? membersArray = null;
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                var rows = root.EnumerateArray().ToList();
+                if (rows.Count > 0 && rows[0].TryGetProperty("members", out _))
+                {
+                    var room = rows.FirstOrDefault(r => IsChatroom(r, chatroomId));
+                    if (room.ValueKind != JsonValueKind.Undefined
+                        && room.TryGetProperty("members", out var members)
+                        && members.ValueKind == JsonValueKind.Array)
+                    {
+                        membersArray = members;
+                    }
+                }
+                else
+                {
+                    membersArray = root;
+                }
+            }
+            else if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (root.TryGetProperty("members", out var members) && members.ValueKind == JsonValueKind.Array)
+                    membersArray = members;
+                else
+                {
+                    foreach (var key in new[] { "items", "results", "chatrooms" })
+                    {
+                        if (!root.TryGetProperty(key, out var rooms) || rooms.ValueKind != JsonValueKind.Array)
+                            continue;
+                        var room = rooms.EnumerateArray().FirstOrDefault(r => IsChatroom(r, chatroomId));
+                        if (room.ValueKind != JsonValueKind.Undefined
+                            && room.TryGetProperty("members", out members)
+                            && members.ValueKind == JsonValueKind.Array)
+                        {
+                            membersArray = members;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (membersArray is not JsonElement arr || arr.ValueKind != JsonValueKind.Array)
+                return map;
+
+            foreach (var member in arr.EnumerateArray())
+            {
+                var wxid = GetString(member, "username", "user_name", "wxid", "id") ?? "";
+                if (string.IsNullOrWhiteSpace(wxid)) continue;
+                var name = GetString(member, "display_name", "remark", "nick_name", "nickname", "alias") ?? wxid;
+                map[wxid] = name;
+                map[wxid.ToLowerInvariant()] = name;
+            }
+        }
+        catch
+        {
+            // Group member output formats vary across wx-cli builds; ignore unsupported shapes.
+        }
+        return map;
+    }
+
+    private static bool IsChatroom(JsonElement element, string chatroomId)
+    {
+        var id = GetString(element, "username", "id", "chatroom", "chatroom_id") ?? "";
+        return string.Equals(id, chatroomId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? LocateOnPath(string executableName)
+    {
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "")
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = Path.Combine(dir.Trim(), executableName);
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
+    }
+
+    private static string? LocateWeChatExe()
+    {
+        foreach (var candidate in new[]
+                 {
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Tencent", "WeChat", "WeChat.exe"),
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Tencent", "WeChat", "WeChat.exe"),
+                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tencent", "WeChat", "WeChat.exe")
+                 })
+        {
+            if (File.Exists(candidate)) return candidate;
+        }
+        return LocateOnPath("WeChat.exe");
+    }
+
+    private static string OneLine(string text)
+    {
+        var line = text
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+        return string.IsNullOrWhiteSpace(line) ? "未知" : line;
     }
 
     private async Task<string> RunAsync(
