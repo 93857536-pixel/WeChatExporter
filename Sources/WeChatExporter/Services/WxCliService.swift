@@ -92,23 +92,32 @@ final class WxCliService {
         let status = try await run(["status"], timeout: 30, log: log)
         let needsKey = !status.contains("key ✅")
         if needsKey {
-            progress(tracker.estimated(message: "正在捕获解密密钥（会重启微信）…"))
-            log("正在捕获解密密钥（会重启微信，约 1-2 分钟）…")
+            // 先尝试内存扫描（无需重启微信，更快速）
+            progress(tracker.estimated(message: "正在扫描微信进程内存获取密钥…"))
+            log("正在尝试内存扫描获取密钥（无需重启微信）…")
             do {
-                _ = try await run(["key", "extract", "--timeout", "120"], timeout: nil, log: log, onActivity: { line in
-                    if line.contains("Password") || line.contains("PBKDF2") {
-                        progress(tracker.estimated(message: "等待微信登录并捕获密钥…"))
-                    }
-                })
+                _ = try await run(["key", "scan"], timeout: 60, log: log)
+                log("内存扫描成功")
             } catch {
-                let message = error.localizedDescription
-                if message.localizedCaseInsensitiveContains("not supported for key extraction")
-                    || message.localizedCaseInsensitiveContains("UnsupportedVersion") {
-                    throw AppError.decryptFailed(
-                        "当前微信版本不受内置 wx-cli 支持（需 4.1.7–4.1.11）。请升级 WeChatExporter 到最新版，或等待适配更新。原始错误：\(message)"
-                    )
+                log("内存扫描未成功，回退到 LLDB 捕获（会重启微信）…")
+                progress(tracker.estimated(message: "正在捕获解密密钥（会重启微信）…"))
+                log("正在捕获解密密钥（会重启微信，约 1-2 分钟）…")
+                do {
+                    _ = try await run(["key", "extract", "--timeout", "120"], timeout: nil, log: log, onActivity: { line in
+                        if line.contains("Password") || line.contains("PBKDF2") {
+                            progress(tracker.estimated(message: "等待微信登录并捕获密钥…"))
+                        }
+                    })
+                } catch {
+                    let message = error.localizedDescription
+                    if message.localizedCaseInsensitiveContains("not supported for key extraction")
+                        || message.localizedCaseInsensitiveContains("UnsupportedVersion") {
+                        throw AppError.decryptFailed(
+                            "当前微信版本不受内置 wx-cli 支持（需 4.1.7–4.1.11）。请升级 WeChatExporter 到最新版，或等待适配更新。原始错误：\(message)"
+                        )
+                    }
+                    throw error
                 }
-                throw error
             }
         } else {
             log("使用已保存的密钥")
@@ -214,8 +223,9 @@ final class WxCliService {
 
     func export(contact: ContactItem, outputDir: URL, includeMedia: Bool = false, log: @escaping (String) -> Void) async throws -> Int {
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        let query = !contact.displayName.isEmpty ? contact.displayName : contact.id
-        log("导出：\(contact.displayName)\(includeMedia ? "（含媒体）" : "")")
+        // 始终使用唯一的 wxid/username 作为查询条件，避免 displayName 不唯一导致导出错位
+        let query = contact.id
+        log("导出：\(contact.displayName)（\(contact.id)）\(includeMedia ? "（含媒体）" : "")")
 
         var txtArgs = ["export", query, "--output", outputDir.path, "--format", "txt", "--all"]
         var jsonArgs = ["export", query, "--output", outputDir.path, "--format", "json", "--all"]
@@ -514,8 +524,10 @@ final class WxCliService {
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && !$0.hasPrefix("note:") }
-        if let last = lines.last { return last }
-        return "wx-cli 执行失败"
+        if lines.isEmpty { return "wx-cli 执行失败" }
+        // 显示最后 3 行错误信息，便于定位问题
+        let tail = lines.suffix(3)
+        return tail.joined(separator: " | ")
     }
 
     private static func extractJSON(from output: String) throws -> Data {

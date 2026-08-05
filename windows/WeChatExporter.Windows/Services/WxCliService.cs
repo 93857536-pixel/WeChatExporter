@@ -87,17 +87,67 @@ public sealed class WxCliService
         var needsInit = !status.Contains("ready", StringComparison.OrdinalIgnoreCase)
                         && !status.Contains("running", StringComparison.OrdinalIgnoreCase);
 
+        // 读取已有 config.json 中的 db_dir，防止 init --force 覆盖用户自定义配置
+        var configPath = GetConfigPath();
+        string? savedDbDir = null;
+        if (File.Exists(configPath))
+        {
+            try
+            {
+                var configJson = await File.ReadAllTextAsync(configPath, cancellationToken);
+                using var configDoc = JsonDocument.Parse(configJson);
+                if (configDoc.RootElement.TryGetProperty("db_dir", out var dbDirEl)
+                    && dbDirEl.ValueKind == JsonValueKind.String)
+                {
+                    savedDbDir = dbDirEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(savedDbDir))
+                        log($"检测到自定义数据目录：{savedDbDir}");
+                }
+            }
+            catch
+            {
+                // 读取失败则忽略，继续使用默认流程
+            }
+        }
+
         using var tickCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _ = RunProgressTicker(tickCts.Token, tracker, progress, "正在初始化数据…");
 
         try
         {
-            if (needsInit || !File.Exists(GetConfigPath()))
+            if (needsInit || !File.Exists(configPath))
             {
                 progress?.Invoke(tracker.Warmup("正在初始化（扫描密钥并解密数据库）…"));
                 log("正在初始化（扫描密钥并解密数据库，约 1-3 分钟）…");
                 log("提示：若失败，请以管理员身份重新打开本程序。");
-                await RunAsync(["init", "--force"], null, log, cancellationToken);
+                try
+                {
+                    await RunAsync(["init", "--force"], null, log, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    // init --force 失败时，尝试带 --data-dir 重试（支持非 C 盘数据目录）
+                    log($"init --force 失败：{ex.Message}");
+                    if (!string.IsNullOrWhiteSpace(savedDbDir) && Directory.Exists(savedDbDir))
+                    {
+                        log($"使用自定义数据目录重试：{savedDbDir}");
+                        progress?.Invoke(tracker.Warmup("正在使用自定义数据目录重新初始化…"));
+                        await RunAsync(["init", "--force", "--data-dir", savedDbDir], null, log, cancellationToken);
+                    }
+                    else
+                    {
+                        log("尝试不使用 --force 重新初始化…");
+                        progress?.Invoke(tracker.Warmup("正在重新初始化…"));
+                        await RunAsync(["init"], null, log, cancellationToken);
+                    }
+                }
+
+                // init --force 可能覆盖了 config.json，恢复用户自定义的 db_dir
+                if (!string.IsNullOrWhiteSpace(savedDbDir) && File.Exists(configPath))
+                {
+                    try { await RestoreDbDirToConfigAsync(configPath, savedDbDir, log); }
+                    catch (Exception ex) { log($"警告：恢复 db_dir 配置失败：{ex.Message}"); }
+                }
             }
             else
             {
@@ -113,6 +163,37 @@ public sealed class WxCliService
         {
             tickCts.Cancel();
         }
+    }
+
+    /// <summary>
+    /// 将用户自定义的 db_dir 写回 config.json（init --force 可能覆盖了它）。
+    /// </summary>
+    private static async Task RestoreDbDirToConfigAsync(string configPath, string dbDir, Action<string> log)
+    {
+        var configJson = await File.ReadAllTextAsync(configPath);
+        using var doc = JsonDocument.Parse(configJson);
+        var writer = new MemoryStream();
+        using (var jsonWriter = new Utf8JsonWriter(writer, new JsonWriterOptions { Indented = true }))
+        {
+            jsonWriter.WriteStartObject();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.NameEquals("db_dir"))
+                {
+                    jsonWriter.WriteString("db_dir", dbDir);
+                }
+                else
+                {
+                    prop.WriteTo(jsonWriter);
+                }
+            }
+            // 如果原 config 没有 db_dir 字段，追加它
+            if (!doc.RootElement.TryGetProperty("db_dir", out _))
+                jsonWriter.WriteString("db_dir", dbDir);
+            jsonWriter.WriteEndObject();
+        }
+        await File.WriteAllBytesAsync(configPath, writer.ToArray());
+        log($"已恢复自定义数据目录配置：{dbDir}");
     }
 
     public async Task<IReadOnlyList<ContactItem>> LoadSessionsAsync(
@@ -161,8 +242,9 @@ public sealed class WxCliService
     {
         log ??= _ => { };
         Directory.CreateDirectory(outputDir);
-        var query = string.IsNullOrWhiteSpace(contact.DisplayName) ? contact.Id : contact.DisplayName;
-        log($"导出：{contact.DisplayName}{(includeMedia ? "（含媒体）" : "")}");
+        // 始终使用唯一的 wxid/username 作为查询条件，避免 DisplayName 不唯一导致导出错位
+        var query = contact.Id;
+        log($"导出：{contact.DisplayName}（{contact.Id}）{(includeMedia ? "（含媒体）" : "")}");
 
         var txtPath = Path.Combine(outputDir, "chat.txt");
         var jsonPath = Path.Combine(outputDir, "chat.json");
@@ -316,7 +398,12 @@ public sealed class WxCliService
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(l => !l.StartsWith("note:", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        return lines.Count > 0 ? lines[^1] : "wx-cli 执行失败";
+        if (lines.Count == 0)
+            return "wx-cli 执行失败";
+
+        // 显示最后 3 行错误信息，便于定位问题
+        var tail = lines.Count > 3 ? lines[^3..] : lines;
+        return string.Join(" | ", tail);
     }
 
     private static List<ContactItem> ParseSessions(string output)
