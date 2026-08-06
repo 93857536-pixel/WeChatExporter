@@ -29,6 +29,9 @@ struct ContentView: View {
         .sheet(isPresented: $model.showUpdateSettings) {
             UpdateSettingsView(model: model)
         }
+        .sheet(isPresented: $model.showSettings) {
+            SettingsView(model: model)
+        }
         .task {
             await model.startIfNeeded()
             model.checkUpdateOnStartup()
@@ -136,9 +139,9 @@ struct ContentView: View {
             .disabled(model.isBusy || model.selectedIDs.isEmpty)
 
             Button {
-                model.showUpdateSettings = true
+                model.showSettings = true
             } label: {
-                Label("更新", systemImage: "arrow.triangle.2.circlepath")
+                Label("设置", systemImage: "gearshape.fill")
             }
             .disabled(model.isBusy)
 
@@ -154,37 +157,13 @@ struct ContentView: View {
             readinessBanner
 
             GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("导出设置", systemImage: "slider.horizontal.3")
-                        .font(.headline)
-                    Toggle("同时导出图片、表情、全部表情包等媒体并内嵌到 HTML（体积更大，耗时更长）", isOn: $model.includeMedia)
-                        .toggleStyle(.switch)
-                }
-                .padding(4)
-            }
-
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("导出目录", systemImage: "folder.fill")
-                        .font(.headline)
-                    HStack {
-                        TextField("导出路径", text: $model.exportPath)
-                            .textFieldStyle(.roundedBorder)
-                        Button("选择…") { model.chooseExportFolder() }
-                        Button("打开") { model.openExportFolder() }
-                    }
-                }
-                .padding(4)
-            }
-
-            GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("使用说明", systemImage: "info.circle.fill")
                         .font(.headline)
                     Text("1. 首次使用点击「准备数据」（会重启微信）")
                     Text("2. 在左侧列表中选择一个或多个联系人")
                     Text("3. 点击「导出选中」")
-                    Text("4. 路径由系统自动检测，无需手动配置")
+                    Text("4. 导出路径和媒体选项请点击「设置」按钮调整")
                         .foregroundStyle(AppTheme.subtleText)
                     Divider()
                     HStack {
@@ -192,12 +171,40 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(AppTheme.subtleText)
                         Spacer()
-                        Text("更新方式：\(model.updateMode.displayName)")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.subtleText)
+                        Button {
+                            model.showSettings = true
+                        } label: {
+                            Label("设置", systemImage: "gearshape")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(AppTheme.accent)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(4)
+            }
+
+            // 导出快捷状态
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("导出状态", systemImage: "square.and.arrow.down")
+                        .font(.headline)
+                    HStack {
+                        Image(systemName: model.includeMedia ? "photo.fill.on.rectangle.fill" : "doc.text")
+                            .foregroundStyle(AppTheme.accent)
+                        Text(model.includeMedia ? "含媒体导出" : "纯文本导出")
+                            .font(.caption)
+                        Spacer()
+                        Image(systemName: "folder.fill")
+                            .foregroundStyle(AppTheme.accent)
+                        Text(model.exportPath)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(AppTheme.subtleText)
+                    }
+                }
                 .padding(4)
             }
 

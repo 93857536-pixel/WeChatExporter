@@ -32,6 +32,7 @@ final class AppViewModel: ObservableObject {
     @Published var isInstallingUpdate = false
     @Published var updateCheckMessage: String?
     @Published var showUpdateSettings = false
+    @Published var showSettings = false
 
     var currentVersion: String { UpdateService.shared.currentVersion }
     var currentBuild: String { UpdateService.shared.currentBuild }

@@ -14,17 +14,17 @@ struct WeChatExporterApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
 
-            // 检查更新菜单项
+            // 设置菜单项
             CommandGroup(after: .appInfo) {
+                Button("设置…") {
+                    model.showSettings = true
+                }
+                .keyboardShortcut(",", modifiers: .command)
+
                 Button("检查更新…") {
                     model.checkForUpdatesManually()
                 }
                 .keyboardShortcut("U", modifiers: .command)
-
-                Button("更新设置…") {
-                    model.showUpdateSettings = true
-                }
-                .keyboardShortcut("U", modifiers: [.command, .option])
             }
         }
     }
