@@ -23,7 +23,7 @@ enum UpdateMode: String, CaseIterable {
 
     var description: String {
         switch self {
-        case .automatic: return "启动时自动检查并下载安装新版本"
+        case .automatic: return "后台静默下载新版本，完成后通知你一键重启安装"
         case .notifyOnly: return "启动时自动检查，发现新版本时通知你"
         case .manual: return "不自动检查，仅在点击「检查更新」时检查"
         case .disabled: return "完全不检查更新"
@@ -42,7 +42,9 @@ struct UpdateInfo: Codable, Equatable {
     let releaseNotes: String
     let releaseURL: String     // GitHub release 页面
     let publishedAt: Date
-    let dmgDownloadURL: String // macOS DMG 下载地址
+    let zipDownloadURL: String // macOS ZIP 下载地址（体积小，无需挂载，用于静默更新）
+    let zipSize: Int64         // ZIP 文件大小（字节）
+    let dmgDownloadURL: String // macOS DMG 下载地址（用于手动下载）
     let dmgSize: Int64         // DMG 文件大小（字节）
 }
 
@@ -69,6 +71,8 @@ struct UpdatePreferences {
         static let mode = "update.mode"
         static let lastCheckDate = "update.lastCheckDate"
         static let skippedVersion = "update.skippedVersion"
+        static let pendingInstallPath = "update.pendingInstallPath"
+        static let pendingInstallVersion = "update.pendingInstallVersion"
     }
 
     static var mode: UpdateMode {
@@ -89,6 +93,24 @@ struct UpdatePreferences {
     static var skippedVersion: String? {
         get { UserDefaults.standard.string(forKey: Keys.skippedVersion) }
         set { UserDefaults.standard.set(newValue, forKey: Keys.skippedVersion) }
+    }
+
+    /// 已下载待安装的更新包路径（解压后的 .app）
+    static var pendingInstallPath: String? {
+        get { UserDefaults.standard.string(forKey: Keys.pendingInstallPath) }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.pendingInstallPath) }
+    }
+
+    /// 待安装更新的版本号
+    static var pendingInstallVersion: String? {
+        get { UserDefaults.standard.string(forKey: Keys.pendingInstallVersion) }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.pendingInstallVersion) }
+    }
+
+    /// 是否存在待安装更新
+    static var hasPendingInstall: Bool {
+        guard let path = pendingInstallPath else { return false }
+        return FileManager.default.fileExists(atPath: path)
     }
 }
 
@@ -183,11 +205,16 @@ final class UpdateService {
         let release = try decoder.decode(GitHubRelease.self, from: data)
         let version = release.tagName.replacingOccurrences(of: "v", with: "")
 
-        // 查找 macOS DMG 资产
-        guard let dmgAsset = release.assets.first(where: {
+        // 查找 macOS ZIP 资产（用于静默更新，体积小无需挂载）和 DMG（手动下载）
+        let zipAsset = release.assets.first(where: {
+            $0.name.lowercased().contains("macos") && $0.name.lowercased().hasSuffix(".zip")
+        })
+        let dmgAsset = release.assets.first(where: {
             $0.name.lowercased().contains("macos") && $0.name.lowercased().hasSuffix(".dmg")
-        }) else {
-            // 没有 DMG，可能是预发布或不完整版本
+        })
+
+        // 至少需要一个可下载资产，否则视为不完整版本
+        guard zipAsset != nil || dmgAsset != nil else {
             return nil
         }
 
@@ -207,21 +234,24 @@ final class UpdateService {
             releaseNotes: release.body ?? "无更新说明",
             releaseURL: release.htmlURL,
             publishedAt: release.publishedAt,
-            dmgDownloadURL: dmgAsset.downloadURL,
-            dmgSize: dmgAsset.size
+            zipDownloadURL: zipAsset?.downloadURL ?? dmgAsset!.downloadURL,
+            zipSize: zipAsset?.size ?? dmgAsset!.size,
+            dmgDownloadURL: dmgAsset?.downloadURL ?? zipAsset!.downloadURL,
+            dmgSize: dmgAsset?.size ?? zipAsset!.size
         )
     }
 
     // MARK: - 下载更新
 
-    /// 下载 DMG 到临时目录，返回本地文件路径
+    /// 下载更新包（ZIP 或 DMG）到临时目录，返回本地文件路径
     func downloadUpdate(
         from url: URL,
         expectedSize: Int64,
         progress: @escaping (UpdateDownloadProgress) -> Void
     ) async throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
-        let destURL = tempDir.appendingPathComponent("WeChatExporter-\(UUID().uuidString).dmg")
+        let ext = url.pathExtension.isEmpty ? "download" : url.pathExtension
+        let destURL = tempDir.appendingPathComponent("WeChatExporter-\(UUID().uuidString).\(ext)")
 
         var request = URLRequest(url: url)
         request.setValue("WeChatExporter/\(currentVersion)", forHTTPHeaderField: "User-Agent")
@@ -270,7 +300,91 @@ final class UpdateService {
         return destURL
     }
 
-    // MARK: - 安装更新
+    // MARK: - 静默更新（后台下载 → 解压 → 待安装，不打断用户）
+
+    /// 静默准备更新：下载 ZIP → 解压到应用支持目录 → 记录待安装状态。
+    /// 返回解压后的新 .app 路径。不立即安装，等用户点通知或下次启动时应用。
+    func prepareSilentUpdate(
+        info: UpdateInfo,
+        progress: @escaping (UpdateDownloadProgress) -> Void
+    ) async throws -> URL {
+        // 1. 下载 ZIP
+        let zipURL = try await downloadUpdate(
+            from: URL(string: info.zipDownloadURL)!,
+            expectedSize: info.zipSize,
+            progress: progress
+        )
+
+        // 2. 解压到应用支持目录
+        let appSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("WeChatExporter", isDirectory: true)
+        let pendingDir = appSupport.appendingPathComponent("pending-update-\(info.version)", isDirectory: true)
+
+        // 清理旧的待安装目录
+        if let existing = UpdatePreferences.pendingInstallPath {
+            let existingURL = URL(fileURLWithPath: existing).deletingLastPathComponent()
+            try? FileManager.default.removeItem(at: existingURL)
+        }
+        try? FileManager.default.removeItem(at: pendingDir)
+        try FileManager.default.createDirectory(at: pendingDir, withIntermediateDirectories: true)
+
+        do {
+            try await unzip(zipURL: zipURL, to: pendingDir)
+        } catch {
+            try? FileManager.default.removeItem(at: pendingDir)
+            throw error
+        }
+        try? FileManager.default.removeItem(at: zipURL)
+
+        // 3. 查找解压出的 .app
+        let contents = try FileManager.default.contentsOfDirectory(atPath: pendingDir.path)
+        guard let appName = contents.first(where: { $0.hasSuffix(".app") }) else {
+            try? FileManager.default.removeItem(at: pendingDir)
+            throw UpdateError.installFailed("更新包中未找到 .app 文件")
+        }
+        let newAppURL = pendingDir.appendingPathComponent(appName)
+
+        // 4. 记录待安装
+        UpdatePreferences.pendingInstallPath = newAppURL.path
+        UpdatePreferences.pendingInstallVersion = info.version
+        return newAppURL
+    }
+
+    /// 清除待安装记录（取消或清理）
+    static func clearPendingInstall() {
+        if let path = UpdatePreferences.pendingInstallPath {
+            try? FileManager.default.removeItem(atPath: URL(fileURLWithPath: path).deletingLastPathComponent().path)
+        }
+        UpdatePreferences.pendingInstallPath = nil
+        UpdatePreferences.pendingInstallVersion = nil
+    }
+
+    /// 应用待安装更新：替换当前 app 并重启。
+    /// 如果当前 app 路径与待安装路径相同，说明已经是最新，直接清理。
+    func applyPendingInstall() throws {
+        guard let path = UpdatePreferences.pendingInstallPath else {
+            throw UpdateError.installFailed("没有待安装的更新")
+        }
+        let newAppURL = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: path) else {
+            UpdateService.clearPendingInstall()
+            throw UpdateError.installFailed("待安装的更新包已不存在")
+        }
+
+        // 如果待安装路径就是当前运行的 app（已安装过），清理并返回
+        if Bundle.main.bundleURL.path == path {
+            UpdateService.clearPendingInstall()
+            return
+        }
+
+        try replaceApp(with: newAppURL)
+    }
+
+    // MARK: - 安装更新（DMG 手动安装）
 
     /// 挂载 DMG 并将新版本 .app 复制到当前应用所在位置
     func installUpdate(from dmgURL: URL) async throws {
@@ -317,12 +431,18 @@ final class UpdateService {
         }
 
         let sourceApp = URL(fileURLWithPath: mountPoint).appendingPathComponent(appName)
+        try replaceApp(with: sourceApp)
+    }
 
-        // 3. 获取当前应用路径
+    // MARK: - 替换当前应用
+
+    /// 用新的 .app 替换当前应用（通过脚本实现，因为运行中的应用不能覆盖自身）
+    private func replaceApp(with newAppURL: URL) throws {
+        // 获取当前应用路径
         let currentAppPath = Bundle.main.bundleURL
         let parentDir = currentAppPath.deletingLastPathComponent()
 
-        // 4. 写入替换脚本（因为应用运行时不能直接覆盖自身）
+        // 写入替换脚本（因为应用运行时不能直接覆盖自身）
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("WeChatUpdater-\(UUID().uuidString).sh")
 
@@ -338,11 +458,13 @@ final class UpdateService {
         # 删除旧版本
         rm -rf "\(newPath.path)"
         # 复制新版本
-        cp -R "\(sourceApp.path)" "\(newPath.path)"
+        cp -R "\(newAppURL.path)" "\(newPath.path)"
         # 清除隔离属性
         xattr -cr "\(newPath.path)" 2>/dev/null || true
         # 重新签名
         codesign --force --deep --sign - "\(newPath.path)" 2>/dev/null || true
+        # 清理待安装记录
+        rm -rf "\(newAppURL.deletingLastPathComponent().path)"
         # 启动新版本
         open "\(newPath.path)"
         # 清理脚本自身
@@ -352,7 +474,7 @@ final class UpdateService {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
-        // 5. 执行替换脚本
+        // 执行替换脚本
         let installTask = Process()
         installTask.executableURL = URL(fileURLWithPath: "/bin/bash")
         installTask.arguments = [scriptURL.path]
@@ -361,9 +483,28 @@ final class UpdateService {
 
         try installTask.run()
 
-        // 6. 退出当前应用
+        // 退出当前应用
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             NSApp.terminate(nil)
+        }
+    }
+
+    /// 解压 ZIP 到目标目录（使用 ditto 保留文件权限）
+    private func unzip(zipURL: URL, to destDir: URL) async throws {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        task.arguments = ["-x", "-k", zipURL.path, destDir.path]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = pipe
+
+        try task.run()
+        task.waitUntilExit()
+
+        guard task.terminationStatus == 0 else {
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw UpdateError.installFailed("解压更新包失败：\(output)")
         }
     }
 

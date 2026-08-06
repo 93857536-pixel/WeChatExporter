@@ -476,8 +476,8 @@ final class AppViewModel: ObservableObject {
                 availableUpdate = info
                 appendLog("发现新版本：v\(info.version)（当前 v\(currentVersion)）")
                 if UpdatePreferences.mode == .automatic {
-                    // 自动模式下直接下载安装
-                    await downloadAndInstallUpdate(info)
+                    // 自动模式：后台静默下载，完成后发系统通知，不打断用户
+                    await downloadUpdateInBackground(info)
                 } else {
                     // 通知用户
                     showUpdateSheet = true
@@ -497,7 +497,39 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    /// 下载并安装更新
+    /// 后台静默下载更新（自动模式）：下载 ZIP → 解压 → 记录待安装 → 发系统通知
+    func downloadUpdateInBackground(_ info: UpdateInfo) async {
+        isDownloadingUpdate = true
+        updateDownloadProgress = UpdateDownloadProgress(bytesDownloaded: 0, totalBytes: info.zipSize)
+
+        defer {
+            isDownloadingUpdate = false
+            updateDownloadProgress = nil
+        }
+
+        do {
+            appendLog("正在后台下载 v\(info.version)（不打断当前操作）…")
+            _ = try await UpdateService.shared.prepareSilentUpdate(info: info) { [weak self] progress in
+                Task { @MainActor in
+                    self?.updateDownloadProgress = progress
+                }
+            }
+            appendLog("v\(info.version) 已下载完成，点击系统通知即可重启安装")
+            // 发送系统横幅通知
+            NotificationService.postUpdateReady(version: info.version, tagName: info.tagName)
+            // 若通知权限未授权，降级为应用内弹窗提示
+            if !NotificationService.isAuthorized {
+                alertMessage = "新版本 v\(info.version) 已下载完成。\n\n重启应用即可完成更新。\n（可在系统设置中允许本应用发送通知，以便收到更新提醒）"
+                showAlert = true
+            }
+        } catch {
+            appendLog("更新下载失败：\(error.localizedDescription)")
+            alertMessage = "更新下载失败：\(error.localizedDescription)"
+            showAlert = true
+        }
+    }
+
+    /// 用户手动下载并立即安装（DMG 手动模式）
     func downloadAndInstallUpdate(_ info: UpdateInfo) async {
         isDownloadingUpdate = true
         updateDownloadProgress = UpdateDownloadProgress(bytesDownloaded: 0, totalBytes: info.dmgSize)
@@ -525,6 +557,19 @@ final class AppViewModel: ObservableObject {
             appendLog("更新失败：\(error.localizedDescription)")
             alertMessage = "更新失败：\(error.localizedDescription)"
             showAlert = true
+        }
+    }
+
+    /// 应用待安装更新（用户点击通知或下次启动时调用）
+    func applyPendingUpdateIfNeeded() {
+        guard UpdatePreferences.hasPendingInstall else { return }
+        let version = UpdatePreferences.pendingInstallVersion ?? "新版本"
+        appendLog("检测到待安装更新 v\(version)，正在应用…")
+        do {
+            try UpdateService.shared.applyPendingInstall()
+        } catch {
+            appendLog("应用更新失败：\(error.localizedDescription)")
+            UpdateService.clearPendingInstall()
         }
     }
 

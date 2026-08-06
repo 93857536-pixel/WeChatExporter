@@ -238,8 +238,9 @@ struct UpdateNotificationSheet: View {
                 // 操作按钮
                 if !model.isDownloadingUpdate && !model.isInstallingUpdate {
                     HStack(spacing: 12) {
-                        Button("下载并安装") {
-                            Task { await model.downloadAndInstallUpdate(info) }
+                        Button("下载更新") {
+                            Task { await model.downloadUpdateInBackground(info) }
+                            model.showUpdateSheet = false
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(AppTheme.accent)
