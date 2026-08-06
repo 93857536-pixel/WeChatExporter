@@ -205,7 +205,8 @@ final class WxCliService {
                             message: "正在解密 \(count) 个数据库…"
                         ))
                     }
-                }
+                },
+                logStdout: false
             )
 
             let response = try Self.decodeSessionsResponse(from: output)
@@ -430,7 +431,8 @@ final class WxCliService {
         _ args: [String],
         timeout: TimeInterval? = 120,
         log: ((String) -> Void)? = nil,
-        onActivity: ((String) -> Void)? = nil
+        onActivity: ((String) -> Void)? = nil,
+        logStdout: Bool = true
     ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let resumeOnMain: (Result<String, Error>) -> Void = { result in
@@ -445,11 +447,16 @@ final class WxCliService {
             }
 
             let collector = OutputCollector()
-            let emitLine: (String) -> Void = { line in
+            let emitLine: (String, Bool) -> Void = { line, isErr in
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
+                // 过滤 wx-cli 输出的 JSON 原始数据行（如 sessions --format json），
+                // 避免 UI 日志面板被 JSON 刷屏
+                guard !Self.isJSONOutputLine(trimmed) else { return }
                 onActivity?(trimmed)
                 guard let log else { return }
+                // stdout 在 logStdout=false 时仅用于解析（如 JSON），不刷进 UI 日志
+                if !isErr && !logStdout { return }
                 DispatchQueue.main.async { log(trimmed) }
             }
 
@@ -475,7 +482,7 @@ final class WxCliService {
                 collector.append(chunk, isErr: isErr)
                 guard let text = String(data: chunk, encoding: .utf8) else { return }
                 for line in text.components(separatedBy: .newlines) where !line.isEmpty {
-                    emitLine(line)
+                    emitLine(line, isErr)
                 }
             }
 
@@ -532,6 +539,18 @@ final class WxCliService {
 
     private static func procExitOK(_ status: Int32) -> Bool {
         status == 0
+    }
+
+    /// 判断一行输出是否为 JSON 原始数据（`sessions --format json` 的逐行输出）。
+    /// 这些行只应被解析器消费，不应刷进 UI 日志面板。
+    private static func isJSONOutputLine(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 结构括号行：{ } } , [ ] 等
+        if t == "{" || t == "}" || t == "}," || t == "[" || t == "]" || t == "]," || t == "{" { return true }
+        // JSON 键值对行："key": value
+        if t.hasPrefix("\"") && t.contains("\":") { return true }
+        // 数组/对象起始的数值行，如 "0": {...} 前缀统一由引号开头处理
+        return false
     }
 
     private static func trimFailureOutput(_ text: String) -> String {

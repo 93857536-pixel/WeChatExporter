@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.10.1] - 2026-08-06
+
+### Fixed
+- **日志面板 JSON 刷屏**：`sessions --format json` 的原始输出不再刷进 UI 日志，只显示有意义的状态信息
+- **窗口标题**：主窗口标题从「详情」修正为「微信聊天记录导出」
+
 ## [2.10.0] - 2026-08-06
 
 ### Added

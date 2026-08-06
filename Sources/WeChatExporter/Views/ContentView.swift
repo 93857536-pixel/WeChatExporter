@@ -391,7 +391,6 @@ struct ContentView: View {
             .padding(20)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("详情")
     }
 
     private var readinessBanner: some View {
