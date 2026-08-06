@@ -274,10 +274,14 @@ final class UpdateService {
 
     /// 挂载 DMG 并将新版本 .app 复制到当前应用所在位置
     func installUpdate(from dmgURL: URL) async throws {
-        // 1. 挂载 DMG
+        // 1. 挂载 DMG — 显式指定挂载点，无需解析 hdiutil 输出
+        let mountPoint = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WeChatExporter-Update-\(UUID().uuidString)")
+            .path
+
         let mountTask = Process()
         mountTask.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-        mountTask.arguments = ["attach", dmgURL.path, "-nobrowse", "-quiet"]
+        mountTask.arguments = ["attach", dmgURL.path, "-nobrowse", "-quiet", "-mountpoint", mountPoint]
 
         let mountPipe = Pipe()
         mountTask.standardOutput = mountPipe
@@ -291,11 +295,8 @@ final class UpdateService {
             throw UpdateError.installFailed("无法挂载 DMG：\(output)")
         }
 
-        // 解析挂载点
-        let mountOutput = String(data: mountPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let mountPoint = parseMountPoint(from: mountOutput)
-
-        guard let mountPoint else {
+        // 确认挂载点真实存在
+        guard FileManager.default.fileExists(atPath: mountPoint) else {
             throw UpdateError.installFailed("无法解析 DMG 挂载点")
         }
 
@@ -386,24 +387,6 @@ final class UpdateService {
         }
 
         return true
-    }
-
-    private func parseMountPoint(from output: String) -> String? {
-        let lines = output.split(separator: "\n")
-        // hdiutil attach 输出格式：最后一行包含挂载点
-        // 例如：/dev/disk4s1  Apple_HFS /Volumes/WeChatExporter
-        guard let lastLine = lines.last else { return nil }
-        let components = lastLine.split(separator: "\t").map { String($0).trimmingCharacters(in: .whitespaces) }
-        // 挂载点是最后一个以 /Volumes/ 开头的部分
-        if let mountPoint = components.last(where: { $0.hasPrefix("/Volumes/") }) {
-            return mountPoint
-        }
-        // 尝试用空格分割
-        let spaceParts = lastLine.split(separator: " ").map { String($0) }
-        if let mountPoint = spaceParts.last(where: { $0.hasPrefix("/Volumes/") }) {
-            return mountPoint
-        }
-        return nil
     }
 }
 
