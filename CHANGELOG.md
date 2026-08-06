@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.12.0] - 2026-08-06
+
+### Added
+- **导出方式选择**：设置中可选择三种导出方式
+  - 分类导出：文字、图片、视频分别归档到独立文件夹
+  - 只导出文字：仅导出 txt / json / csv
+  - 全部导出：导出全部文字与媒体文件（不生成内嵌 HTML）
+- 表情包在含媒体模式下导出到「全部表情包」文件夹
+
+### Changed
+- 不再生成媒体 base64 内嵌的单文件 HTML，改为直接输出文件夹结构
+
 ## [2.11.0] - 2026-08-06
 
 ### Changed

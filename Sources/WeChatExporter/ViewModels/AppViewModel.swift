@@ -16,7 +16,7 @@ final class AppViewModel: ObservableObject {
     @Published var isBusy = false
     @Published var statusText = "就绪"
     @Published var isDataReady = false
-    @Published var includeMedia = false
+    @Published var exportMode: ExportMode = ExportModePreferences.mode
     @Published var alertMessage: String?
     @Published var showAlert = false
     @Published var operationProgress: Double?
@@ -298,21 +298,14 @@ final class AppViewModel: ObservableObject {
             statusText = "就绪"
         }
 
+        let mode = exportMode
         let base = URL(fileURLWithPath: exportPath.expandingTildeInPath, isDirectory: true)
         var summary: [String] = []
         do {
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+
             switch backend {
             case .wxCli(let wxCli):
-                if includeMedia {
-                    let stickerTemp = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("WeChatExporter-stickers-\(UUID().uuidString)", isDirectory: true)
-                    defer { try? FileManager.default.removeItem(at: stickerTemp) }
-                    let stickerCount = await StickerPackExporter.exportAllPacks(in: stickerTemp, log: logHandler())
-                    if stickerCount > 0, let galleryURL = try SingleFileExporter.writeStickerGallery(from: stickerTemp, into: base) {
-                        summary.append("• 全部表情包：\(stickerCount) 张 → \(galleryURL.lastPathComponent)")
-                    }
-                }
-
                 for contact in selected {
                     let tempDir = FileManager.default.temporaryDirectory
                         .appendingPathComponent("WeChatExporter-\(UUID().uuidString)", isDirectory: true)
@@ -321,15 +314,55 @@ final class AppViewModel: ObservableObject {
                     let count = try await wxCli.export(
                         contact: contact,
                         outputDir: tempDir,
-                        includeMedia: includeMedia,
+                        includeMedia: mode.includesMedia,
                         log: logHandler()
                     )
-                    let htmlURL = try SingleFileExporter.writeHTML(
-                        from: tempDir,
-                        contactName: contact.displayName,
-                        into: base
-                    )
-                    summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+
+                    switch mode {
+                    case .categorized:
+                        // 按分类归档：文字 / 图片 / 视频 / 其他
+                        let result = try MediaOrganizer.organize(
+                            sourceDir: tempDir,
+                            into: base,
+                            contactName: contact.displayName,
+                            log: logHandler()
+                        )
+                        summary.append("• \(contact.displayName)：\(count) 条（文字 \(result.textCount)、图片 \(result.imageCount)、视频 \(result.videoCount)、其他 \(result.otherCount)）")
+                    case .textOnly:
+                        // 只导出文字文件
+                        let contactDir = base.appendingPathComponent(contact.displayName, isDirectory: true)
+                        try FileManager.default.createDirectory(at: contactDir, withIntermediateDirectories: true)
+                        try copyTextArtifacts(from: tempDir, to: contactDir)
+                        summary.append("• \(contact.displayName)：\(count) 条（仅文字）")
+                    case .all:
+                        // 全部导出：文字 + 原始媒体文件夹，不内嵌 HTML
+                        let contactDir = base.appendingPathComponent(contact.displayName, isDirectory: true)
+                        try FileManager.default.createDirectory(at: contactDir, withIntermediateDirectories: true)
+                        try copyAllArtifacts(from: tempDir, to: contactDir)
+                        summary.append("• \(contact.displayName)：\(count) 条（文字 + 媒体文件）")
+                    }
+                }
+
+                // 表情包导出（含媒体模式）
+                if mode.includesMedia {
+                    let stickerTemp = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("WeChatExporter-stickers-\(UUID().uuidString)", isDirectory: true)
+                    defer { try? FileManager.default.removeItem(at: stickerTemp) }
+                    let stickerCount = await StickerPackExporter.exportAllPacks(in: stickerTemp, log: logHandler())
+                    if stickerCount > 0 {
+                        let stickersDir = base.appendingPathComponent("全部表情包", isDirectory: true)
+                        try? FileManager.default.createDirectory(at: stickersDir, withIntermediateDirectories: true)
+                        if let files = try? FileManager.default.contentsOfDirectory(at: stickerTemp.appendingPathComponent("media/stickers"), includingPropertiesForKeys: nil) {
+                            for f in files {
+                                let dest = stickersDir.appendingPathComponent(f.lastPathComponent)
+                                if FileManager.default.fileExists(atPath: dest.path) {
+                                    try? FileManager.default.removeItem(at: dest)
+                                }
+                                try? FileManager.default.moveItem(at: f, to: dest)
+                            }
+                        }
+                        summary.append("• 全部表情包：\(stickerCount) 张 → 全部表情包/")
+                    }
                 }
             case .native(let paths):
                 guard paths.isDecryptedHealthy else {
@@ -346,18 +379,51 @@ final class AppViewModel: ObservableObject {
                         decryptedDir: paths.decryptedDir,
                         outputDir: tempDir
                     )
-                    let htmlURL = try SingleFileExporter.writeHTML(
-                        from: tempDir,
-                        contactName: contact.displayName,
-                        into: base
-                    )
-                    summary.append("• \(contact.displayName)：\(count) 条 → \(htmlURL.lastPathComponent)")
+                    let contactDir = base.appendingPathComponent(contact.displayName, isDirectory: true)
+                    try FileManager.default.createDirectory(at: contactDir, withIntermediateDirectories: true)
+                    try copyTextArtifacts(from: tempDir, to: contactDir)
+                    summary.append("• \(contact.displayName)：\(count) 条")
                 }
             }
-            alertMessage = "已导出 \(selected.count) 个单文件到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。"
+            alertMessage = "已导出 \(selected.count) 个会话到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n导出方式：\(mode.displayName)"
             showAlert = true
         } catch {
             presentError(error.localizedDescription)
+        }
+    }
+
+    /// 复制文字类文件（txt/json/csv）到目标目录
+    private func copyTextArtifacts(from sourceDir: URL, to destDir: URL) throws {
+        let fm = FileManager.default
+        let textExts: Set<String> = ["txt", "json", "csv"]
+        guard let files = try? fm.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil) else { return }
+        for file in files where textExts.contains(file.pathExtension.lowercased()) {
+            let dest = destDir.appendingPathComponent(file.lastPathComponent)
+            if fm.fileExists(atPath: dest.path) { try? fm.removeItem(at: dest) }
+            try fm.copyItem(at: file, to: dest)
+        }
+    }
+
+    /// 复制全部文件（文字 + 媒体原始结构）到目标目录
+    private func copyAllArtifacts(from sourceDir: URL, to destDir: URL) throws {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: sourceDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for case let file as URL in enumerator {
+            let isDir = (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            let relPath = file.path.replacingOccurrences(of: sourceDir.path + "/", with: "")
+            let dest = destDir.appendingPathComponent(relPath)
+
+            if isDir {
+                try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+            } else {
+                if fm.fileExists(atPath: dest.path) { try? fm.removeItem(at: dest) }
+                try fm.copyItem(at: file, to: dest)
+            }
         }
     }
 

@@ -304,9 +304,9 @@ struct ContentView: View {
                 TechCard {
                     HStack(spacing: 20) {
                         ExportStatusChip(
-                            icon: model.includeMedia ? "photo.fill.on.rectangle.fill" : "doc.text.fill",
-                            label: model.includeMedia ? "含媒体" : "纯文本",
-                            isActive: model.includeMedia
+                            icon: model.exportMode.icon,
+                            label: model.exportMode.displayName,
+                            isActive: model.exportMode.includesMedia
                         )
                         Divider().frame(height: 28)
                         ExportStatusChip(

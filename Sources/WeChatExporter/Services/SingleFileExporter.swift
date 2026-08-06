@@ -11,7 +11,13 @@ enum SingleFileExporter {
     }
 
     /// 从已导出的临时目录生成 HTML，写入 `destinationDir`，返回 HTML 文件 URL。
-    static func writeHTML(from sourceDir: URL, contactName: String, into destinationDir: URL) throws -> URL {
+    /// - Parameter embedMedia: 为 true 时将媒体以 base64 内嵌到 HTML；为 false 时仅生成纯文字版本。
+    static func writeHTML(
+        from sourceDir: URL,
+        contactName: String,
+        into destinationDir: URL,
+        embedMedia: Bool = false
+    ) throws -> URL {
         let jsonURL = sourceDir.appendingPathComponent("chat.json")
         guard FileManager.default.fileExists(atPath: jsonURL.path) else {
             throw AppError.exportFailed("未找到 chat.json，无法生成单文件导出")
@@ -30,9 +36,15 @@ enum SingleFileExporter {
         var body = ""
         var embedded = Set<String>()
         for row in rows {
-            body += renderMessage(row, sourceDir: sourceDir, embedded: &embedded)
+            body += renderMessage(row, sourceDir: sourceDir, embedded: &embedded, embedMediaFlag: embedMedia)
         }
-        body += renderOrphanMedia(sourceDir: sourceDir, embedded: &embedded)
+        if embedMedia {
+            body += renderOrphanMedia(sourceDir: sourceDir, embedded: &embedded)
+        }
+
+        let mediaBadge = embedMedia
+            ? "<span class=\"pill pill-purple\">媒体已内嵌</span>"
+            : "<span class=\"pill pill-purple\">纯文字版</span>"
 
         let html = """
         <!DOCTYPE html>
@@ -58,7 +70,7 @@ enum SingleFileExporter {
             <h1>\(title)</h1>
             <div class="stats">
               <span class="pill pill-cyan">\(rows.count) 条消息</span>
-              <span class="pill pill-purple">媒体已内嵌</span>
+              \(mediaBadge)
               <span class="pill pill-muted">\(stamp)</span>
             </div>
           </header>
@@ -493,12 +505,14 @@ enum SingleFileExporter {
     }
     """
 
-    private static func renderMessage(_ row: MessageRow, sourceDir: URL, embedded: inout Set<String>) -> String {
+    private static func renderMessage(_ row: MessageRow, sourceDir: URL, embedded: inout Set<String>, embedMediaFlag: Bool) -> String {
         var mediaHTML = ""
-        for rel in row.mediaPaths {
-            guard embedded.insert(rel).inserted else { continue }
-            if let block = embedMedia(relativePath: rel, sourceDir: sourceDir) {
-                mediaHTML += block
+        if embedMediaFlag {
+            for rel in row.mediaPaths {
+                guard embedded.insert(rel).inserted else { continue }
+                if let block = embedMedia(relativePath: rel, sourceDir: sourceDir) {
+                    mediaHTML += block
+                }
             }
         }
 

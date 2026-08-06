@@ -154,27 +154,35 @@ private struct ExportSettingsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // 导出内容
+            // 导出方式
             TechCard {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
-                        Image(systemName: "doc.text.fill")
+                        Image(systemName: "square.and.arrow.down.fill")
                             .foregroundStyle(AppTheme.accent)
-                        Text("导出内容")
+                        Text("导出方式")
                             .font(.headline)
                     }
 
-                    Toggle(isOn: $model.includeMedia) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("同时导出媒体文件")
-                                .font(.body.weight(.medium))
-                            Text("包含图片、表情、表情包等媒体并内嵌到 HTML（体积更大，耗时更长）")
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.subtleText)
+                    ForEach(ExportMode.allCases) { mode in
+                        let isSelected = model.exportMode == mode
+                        HStack(alignment: .top, spacing: 12) {
+                            RadioButton(
+                                isSelected: isSelected,
+                                action: { changeMode(mode) }
+                            )
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(mode.displayName)
+                                    .font(.body.weight(.medium))
+                                Text(mode.description)
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.subtleText)
+                            }
+                            Spacer()
                         }
+                        .contentShape(Rectangle())
+                        .onTapGesture { changeMode(mode) }
                     }
-                    .toggleStyle(.switch)
-                    .tint(AppTheme.accent)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -205,6 +213,11 @@ private struct ExportSettingsTab: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func changeMode(_ mode: ExportMode) {
+        model.exportMode = mode
+        ExportModePreferences.mode = mode
     }
 }
 
