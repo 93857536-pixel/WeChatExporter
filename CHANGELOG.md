@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.10.0] - 2026-08-06
+
+### Added
+- **科技感 UI 重设计**：全新青蓝色主题配色、渐变头部卡片、终端风格日志面板
+- **统一设置面板**：整合导出/更新/关于三个标签页，独立设置按钮入口
+- **更新方式选择**：支持自动更新 / 仅通知 / 手动检查 / 关闭四种模式
+- **DevToolsSecurity 自动检测**：SIP 关闭时自动检测并启用 DevToolsSecurity
+
+### Fixed
+- 修复 DMG 挂载点解析失败问题（改用 `-mountpoint` 显式指定挂载路径）
+- 修复链接按钮参数缺失导致的编译错误
+
 ## [2.6.4] - 2026-07-23
 
 ### Changed
