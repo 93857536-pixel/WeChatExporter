@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// 通过 wx-cli 自动检测微信路径、解密并导出，避免硬编码路径。
 final class WxCliService {
@@ -77,10 +78,24 @@ final class WxCliService {
         tracker.reset()
         progress(tracker.estimated(message: "正在检查运行环境…"))
         log("检查运行环境…")
-        let doctor = await doctorReport()
+        var doctor = await doctorReport()
         if !doctor.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             log(doctor.output)
         }
+
+        // doctor 失败时，尝试自动修复 DevToolsSecurity（前提：SIP 已关闭）
+        if !doctor.ok {
+            if await Self.tryAutoFixDevToolsSecurity(doctor.output, log: log) {
+                // 修复后重新检查
+                progress(tracker.estimated(message: "正在重新检查运行环境…"))
+                log("正在重新检查运行环境…")
+                doctor = await doctorReport()
+                if !doctor.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    log(doctor.output)
+                }
+            }
+        }
+
         guard doctor.ok else {
             let detail = Self.summarizeDoctorFailure(doctor.output)
             throw AppError.decryptFailed(
@@ -589,6 +604,64 @@ final class WxCliService {
         guard !failed.isEmpty else { return "" }
         let joined = failed.prefix(3).joined(separator: "；")
         return "失败项：\(joined)。"
+    }
+
+    // MARK: - 自动修复 DevToolsSecurity
+
+    /// 检测 doctor 输出，如果 SIP 已关闭但 DevToolsSecurity 未启用，则自动启用。
+    /// 使用 NSAppleScript 弹出系统密码授权框，无需用户手动终端操作。
+    /// 返回 true 表示已尝试修复（无论是否成功），false 表示不符合自动修复条件。
+    private static func tryAutoFixDevToolsSecurity(_ doctorOutput: String, log: (String) -> Void) async -> Bool {
+        let lines = doctorOutput.components(separatedBy: .newlines)
+
+        // 1. 检查 SIP 是否已关闭
+        // doctor 输出中 SIP 行以 ✗ 开头表示 SIP 仍然开启（未关闭）
+        let sipLine = lines.first(where: { $0.localizedCaseInsensitiveContains("SIP") })
+        let sipStillEnabled = sipLine?.hasPrefix("✗") == true || sipLine?.hasPrefix("\u{2717}") == true
+
+        // SIP 仍然开启，无法自动修复（需要在恢复模式下手动关闭）
+        guard !sipStillEnabled else {
+            log("SIP 未关闭，无法自动修复 DevToolsSecurity，请先关闭 SIP")
+            return false
+        }
+
+        // 2. 检查 DevToolsSecurity 是否是失败项
+        let devToolsLine = lines.first(where: { $0.localizedCaseInsensitiveContains("DevToolsSecurity") })
+        let devToolsFailed = devToolsLine?.hasPrefix("✗") == true || devToolsLine?.hasPrefix("\u{2717}") == true
+
+        guard devToolsFailed else {
+            // DevToolsSecurity 不是失败项，不需要修复
+            return false
+        }
+
+        // 3. 通过 AppleScript 以管理员权限执行 DevToolsSecurity -enable
+        log("检测到 DevToolsSecurity 未启用，正在自动启用（需要输入管理员密码）…")
+
+        let script = """
+        do shell script "DevToolsSecurity -enable" with administrator privileges
+        """
+
+        // NSAppleScript 必须在主线程执行
+        var errorDict: NSDictionary?
+        var scriptResult: NSAppleEventDescriptor?
+
+        if Thread.isMainThread {
+            scriptResult = NSAppleScript(source: script)?.executeAndReturnError(&errorDict)
+        } else {
+            DispatchQueue.main.sync {
+                scriptResult = NSAppleScript(source: script)?.executeAndReturnError(&errorDict)
+            }
+        }
+
+        if scriptResult != nil {
+            log("DevToolsSecurity 已成功启用")
+            return true
+        } else {
+            let errorMessage = errorDict?.object(forKey: NSAppleScript.errorMessage) as? String ?? "未知错误"
+            log("自动启用 DevToolsSecurity 失败：\(errorMessage)")
+            log("请手动在终端执行：sudo DevToolsSecurity -enable")
+            return false
+        }
     }
 
     private static func cleanDisplayName(_ raw: String, username: String) -> String {
