@@ -22,6 +22,21 @@ final class AppViewModel: ObservableObject {
     @Published var operationProgress: Double?
     @Published var operationProgressLabel = ""
 
+    // 更新相关状态
+    @Published var updateMode: UpdateMode = UpdatePreferences.mode
+    @Published var isCheckingUpdate = false
+    @Published var availableUpdate: UpdateInfo?
+    @Published var showUpdateSheet = false
+    @Published var updateDownloadProgress: UpdateDownloadProgress?
+    @Published var isDownloadingUpdate = false
+    @Published var isInstallingUpdate = false
+    @Published var updateCheckMessage: String?
+    @Published var showUpdateSettings = false
+
+    var currentVersion: String { UpdateService.shared.currentVersion }
+    var currentBuild: String { UpdateService.shared.currentBuild }
+    var lastCheckDate: Date? { UpdatePreferences.lastCheckDate }
+
     private let backend: Backend
     private var didBootstrap = false
 
@@ -357,6 +372,109 @@ final class AppViewModel: ObservableObject {
         panel.directoryURL = URL(fileURLWithPath: exportPath.expandingTildeInPath, isDirectory: true)
         if panel.runModal() == .OK, let url = panel.url {
             exportPath = url.path
+        }
+    }
+
+    // MARK: - 更新功能
+
+    func changeUpdateMode(_ mode: UpdateMode) {
+        updateMode = mode
+        UpdatePreferences.mode = mode
+        appendLog("更新模式已切换为：\(mode.displayName)")
+    }
+
+    /// 启动时自动检查更新
+    func checkUpdateOnStartup() {
+        guard UpdateService.shared.shouldCheckOnStartup() else { return }
+        Task { await checkForUpdates(silent: true) }
+    }
+
+    /// 用户手动检查更新
+    func checkForUpdatesManually() {
+        Task { await checkForUpdates(silent: false) }
+    }
+
+    /// 检查更新
+    func checkForUpdates(silent: Bool) async {
+        isCheckingUpdate = true
+        defer { isCheckingUpdate = false }
+
+        do {
+            let info = try await UpdateService.shared.checkForUpdates()
+            UpdatePreferences.lastCheckDate = Date()
+
+            if let info {
+                availableUpdate = info
+                appendLog("发现新版本：v\(info.version)（当前 v\(currentVersion)）")
+                if UpdatePreferences.mode == .automatic {
+                    // 自动模式下直接下载安装
+                    await downloadAndInstallUpdate(info)
+                } else {
+                    // 通知用户
+                    showUpdateSheet = true
+                }
+            } else {
+                if !silent {
+                    updateCheckMessage = "当前版本（v\(currentVersion)）已是最新版本。"
+                    showUpdateSheet = true
+                }
+            }
+        } catch {
+            if !silent {
+                updateCheckMessage = "检查更新失败：\(error.localizedDescription)"
+                showUpdateSheet = true
+            }
+            appendLog("检查更新失败：\(error.localizedDescription)")
+        }
+    }
+
+    /// 下载并安装更新
+    func downloadAndInstallUpdate(_ info: UpdateInfo) async {
+        isDownloadingUpdate = true
+        updateDownloadProgress = UpdateDownloadProgress(bytesDownloaded: 0, totalBytes: info.dmgSize)
+
+        defer {
+            isDownloadingUpdate = false
+            updateDownloadProgress = nil
+        }
+
+        do {
+            appendLog("正在下载 v\(info.version)…")
+            let dmgURL = try await UpdateService.shared.downloadUpdate(
+                from: URL(string: info.dmgDownloadURL)!,
+                expectedSize: info.dmgSize
+            ) { [weak self] progress in
+                Task { @MainActor in
+                    self?.updateDownloadProgress = progress
+                }
+            }
+            appendLog("下载完成，正在安装…")
+            isInstallingUpdate = true
+            try await UpdateService.shared.installUpdate(from: dmgURL)
+        } catch {
+            isInstallingUpdate = false
+            appendLog("更新失败：\(error.localizedDescription)")
+            alertMessage = "更新失败：\(error.localizedDescription)"
+            showAlert = true
+        }
+    }
+
+    /// 跳过此版本
+    func skipUpdate() {
+        if let info = availableUpdate {
+            UpdatePreferences.skippedVersion = info.version
+            appendLog("已跳过 v\(info.version)")
+        }
+        availableUpdate = nil
+        showUpdateSheet = false
+    }
+
+    /// 在浏览器中打开 Release 页面（手动下载）
+    func openReleaseInBrowser() {
+        if let info = availableUpdate {
+            UpdateService.shared.openReleasePage(url: info.releaseURL)
+        } else {
+            UpdateService.shared.openReleasePage(url: "https://github.com/93857536-pixel/WeChatExporter/releases/latest")
         }
     }
 

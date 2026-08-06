@@ -23,8 +23,15 @@ struct ContentView: View {
         } message: {
             Text(model.alertMessage ?? "")
         }
+        .sheet(isPresented: $model.showUpdateSheet) {
+            UpdateNotificationSheet(model: model)
+        }
+        .sheet(isPresented: $model.showUpdateSettings) {
+            UpdateSettingsView(model: model)
+        }
         .task {
             await model.startIfNeeded()
+            model.checkUpdateOnStartup()
         }
     }
 
@@ -127,6 +134,18 @@ struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .tint(AppTheme.accent)
             .disabled(model.isBusy || model.selectedIDs.isEmpty)
+
+            Button {
+                model.showUpdateSettings = true
+            } label: {
+                Label("更新", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(model.isBusy)
+
+            if model.isCheckingUpdate {
+                ProgressView()
+                    .controlSize(.small)
+            }
         }
     }
 
@@ -167,6 +186,16 @@ struct ContentView: View {
                     Text("3. 点击「导出选中」")
                     Text("4. 路径由系统自动检测，无需手动配置")
                         .foregroundStyle(AppTheme.subtleText)
+                    Divider()
+                    HStack {
+                        Text("版本 v\(model.currentVersion) (Build \(model.currentBuild))")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.subtleText)
+                        Spacer()
+                        Text("更新方式：\(model.updateMode.displayName)")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.subtleText)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(4)
