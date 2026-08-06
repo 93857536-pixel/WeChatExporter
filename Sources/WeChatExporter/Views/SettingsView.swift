@@ -1,70 +1,149 @@
 import SwiftUI
 
-/// 统一设置面板 — 科技感设计
+/// 统一设置面板 — 左侧导航 + 右侧内容，macOS 系统设置风格
 struct SettingsView: View {
     @ObservedObject var model: AppViewModel
 
+    enum SettingsTab: Int, CaseIterable, Identifiable {
+        case export = 0, update = 1, about = 2
+
+        var id: Int { rawValue }
+
+        var title: String {
+            switch self {
+            case .export: return "导出"
+            case .update: return "更新"
+            case .about: return "关于"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .export: return "square.and.arrow.down.fill"
+            case .update: return "arrow.triangle.2.circlepath"
+            case .about: return "info.circle.fill"
+            }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header bar
-            HStack {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(AppTheme.headerGradient)
-                        .frame(width: 36, height: 36)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                        )
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.white)
-                }
-                Text("设置")
-                    .font(.title3.weight(.bold))
-                Spacer()
-                Button("完成") {
-                    model.showSettings = false
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(AppTheme.accent)
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding(16)
-
+            header
             Divider()
+            HStack(spacing: 0) {
+                sidebar
+                Divider()
+                content
+            }
+            .frame(maxHeight: .infinity)
+            Divider()
+            footer
+        }
+        .frame(width: 680, height: 540)
+    }
 
-            TabView {
-                ExportSettingsTab(model: model)
-                    .tabItem {
-                        Label("导出", systemImage: "square.and.arrow.down")
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(AppTheme.headerGradient)
+                    .frame(width: 34, height: 34)
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white)
+            }
+            Text("设置")
+                .font(.title3.weight(.bold))
+            Spacer()
+            Button("完成") {
+                model.showSettings = false
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(AppTheme.accent)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    // MARK: - Sidebar
+
+    private var selectedTab: SettingsTab {
+        SettingsTab(rawValue: model.settingsTab) ?? .export
+    }
+
+    private var sidebar: some View {
+        VStack(spacing: 4) {
+            ForEach(SettingsTab.allCases) { tab in
+                let isSelected = selectedTab == tab
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        model.settingsTab = tab.rawValue
                     }
-                UpdateSettingsTab(model: model)
-                    .tabItem {
-                        Label("更新", systemImage: "arrow.triangle.2.circlepath")
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 20)
+                        Text(tab.title)
+                            .font(.body.weight(isSelected ? .semibold : .regular))
+                        Spacer(minLength: 0)
                     }
-                AboutTab(model: model)
-                    .tabItem {
-                        Label("关于", systemImage: "info.circle")
-                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(isSelected ? AppTheme.accentSoft : Color.clear)
+                    )
+                    .foregroundStyle(isSelected ? AppTheme.accent : .primary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .frame(width: 180)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                switch selectedTab {
+                case .export:
+                    ExportSettingsTab(model: model)
+                case .update:
+                    UpdateSettingsTab(model: model)
+                case .about:
+                    AboutTab(model: model)
+                }
             }
             .padding(20)
-
-            Divider()
-
-            // Footer with version
-            HStack {
-                Image(systemName: "terminal.fill")
-                    .font(.caption2)
-                    .foregroundStyle(AppTheme.subtleText)
-                Text("WeChatExporter v\(model.currentVersion) (\(model.currentBuild))")
-                    .font(AppTheme.monoFontSm)
-                    .foregroundStyle(AppTheme.subtleText)
-                Spacer()
-            }
-            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 540, height: 580)
+        .id(selectedTab)
+    }
+
+    // MARK: - Footer
+
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "terminal.fill")
+                .font(.caption2)
+                .foregroundStyle(AppTheme.subtleText)
+            Text("WeChatExporter v\(model.currentVersion) (\(model.currentBuild))")
+                .font(AppTheme.monoFontSm)
+                .foregroundStyle(AppTheme.subtleText)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
     }
 }
 
@@ -74,7 +153,7 @@ private struct ExportSettingsTab: View {
     @ObservedObject var model: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 18) {
             // 导出内容
             TechCard {
                 VStack(alignment: .leading, spacing: 14) {
@@ -110,7 +189,7 @@ private struct ExportSettingsTab: View {
                             .font(.headline)
                     }
 
-                    HStack {
+                    HStack(spacing: 8) {
                         TextField("导出路径", text: $model.exportPath)
                             .textFieldStyle(.roundedBorder)
                             .font(AppTheme.monoFontSm)
@@ -124,8 +203,6 @@ private struct ExportSettingsTab: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -137,7 +214,7 @@ private struct UpdateSettingsTab: View {
     @ObservedObject var model: AppViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 18) {
             // 版本信息
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {
@@ -173,7 +250,7 @@ private struct UpdateSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // 更新模式
+            // 更新方式
             TechCard {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -225,6 +302,12 @@ private struct UpdateSettingsTab: View {
                 }
 
                 Spacer()
+
+                Button("前往 Release 页面") {
+                    model.openReleaseInBrowser()
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(AppTheme.accent)
             }
 
             // 下载进度
@@ -264,14 +347,6 @@ private struct UpdateSettingsTab: View {
                 .padding(.vertical, 10)
                 .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
-
-            Spacer()
-
-            Button("前往 GitHub Release 页面手动下载") {
-                model.openReleaseInBrowser()
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(AppTheme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -283,49 +358,51 @@ private struct AboutTab: View {
     @ObservedObject var model: AppViewModel
 
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
+        VStack(spacing: 22) {
             // App icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(AppTheme.headerGradient)
-                    .frame(width: 96, height: 96)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                    )
-                    .shadow(color: AppTheme.accentGlow, radius: 16, y: 6)
+            VStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(AppTheme.headerGradient)
+                        .frame(width: 88, height: 88)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                        )
+                        .shadow(color: AppTheme.accentGlow, radius: 16, y: 6)
 
-                Image(systemName: "message.and.waveform.fill")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.white)
-            }
+                    Image(systemName: "message.and.waveform.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.white)
+                }
 
-            VStack(spacing: 6) {
-                Text("微信聊天记录导出")
-                    .font(.title2.weight(.bold))
-                HStack(spacing: 6) {
-                    Text("v\(model.currentVersion)")
-                        .font(AppTheme.monoFont.weight(.bold))
-                        .foregroundStyle(AppTheme.accent)
-                    Text("Build \(model.currentBuild)")
-                        .font(AppTheme.monoFontSm)
-                        .foregroundStyle(AppTheme.subtleText)
+                VStack(spacing: 4) {
+                    Text("微信聊天记录导出")
+                        .font(.title2.weight(.bold))
+                    HStack(spacing: 6) {
+                        Text("v\(model.currentVersion)")
+                            .font(AppTheme.monoFont.weight(.bold))
+                            .foregroundStyle(AppTheme.accent)
+                        Text("Build \(model.currentBuild)")
+                            .font(AppTheme.monoFontSm)
+                            .foregroundStyle(AppTheme.subtleText)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
 
             // Quick guide
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {
+                    Label("快速指南", systemImage: "book.fill")
+                        .font(.headline)
                     GuideStep(number: 1, text: "首次使用点击「准备数据」（会重启微信）")
                     GuideStep(number: 2, text: "在左侧列表中选择一个或多个联系人")
                     GuideStep(number: 3, text: "点击「导出选中」生成 HTML 文件")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            Spacer()
 
             // Environment requirements
             TechCard {
@@ -367,8 +444,9 @@ private struct AboutTab: View {
                     model.openReleaseInBrowser()
                 }
             }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -385,7 +463,7 @@ private struct LinkButton: View {
                 Text(title)
                     .font(.caption2)
             }
-            .frame(width: 80, height: 50)
+            .frame(width: 90, height: 52)
             .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)

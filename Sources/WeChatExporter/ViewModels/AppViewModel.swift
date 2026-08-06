@@ -33,6 +33,8 @@ final class AppViewModel: ObservableObject {
     @Published var updateCheckMessage: String?
     @Published var showUpdateSettings = false
     @Published var showSettings = false
+    // 设置面板当前选中的标签页（0=导出 1=更新 2=关于）
+    @Published var settingsTab = 0
 
     var currentVersion: String { UpdateService.shared.currentVersion }
     var currentBuild: String { UpdateService.shared.currentBuild }

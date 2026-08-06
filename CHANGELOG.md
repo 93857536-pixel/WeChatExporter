@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.11.0] - 2026-08-06
+
+### Changed
+- **设置面板布局重构**：改为 macOS 系统设置风格的「左侧导航 + 右侧内容」双栏布局，导出/更新/关于三个入口清晰切换
+- 右侧内容区支持滚动，内容较多时不再挤压截断
+
 ## [2.10.1] - 2026-08-06
 
 ### Fixed
