@@ -641,17 +641,14 @@ final class WxCliService {
         do shell script "DevToolsSecurity -enable" with administrator privileges
         """
 
-        // NSAppleScript 必须在主线程执行
-        var errorDict: NSDictionary?
-        var scriptResult: NSAppleEventDescriptor?
-
-        if Thread.isMainThread {
-            scriptResult = NSAppleScript(source: script)?.executeAndReturnError(&errorDict)
-        } else {
-            DispatchQueue.main.sync {
-                scriptResult = NSAppleScript(source: script)?.executeAndReturnError(&errorDict)
-            }
+        // NSAppleScript 必须在主线程执行，使用 MainActor.run 确保 Swift 6 兼容
+        let result: (NSAppleEventDescriptor?, NSDictionary?) = await MainActor.run {
+            var errorDict: NSDictionary?
+            let scriptResult = NSAppleScript(source: script)?.executeAndReturnError(&errorDict)
+            return (scriptResult, errorDict)
         }
+        let scriptResult = result.0
+        let errorDict = result.1
 
         if scriptResult != nil {
             log("DevToolsSecurity 已成功启用")
