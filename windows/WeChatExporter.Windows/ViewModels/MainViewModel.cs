@@ -220,12 +220,53 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             ShowError(ex.Message);
+            // 数据目录相关失败 → 询问用户手动选择微信数据目录
+            if (ex.Message.Contains("数据目录", StringComparison.OrdinalIgnoreCase)
+                || ex.Message.Contains("db_dir", StringComparison.OrdinalIgnoreCase))
+            {
+                await PromptManualDataDirAsync();
+            }
         }
         finally
         {
             IsBusy = false;
             StatusText = "就绪";
             ClearProgress();
+        }
+    }
+
+    /// <summary>询问用户手动选择微信数据目录，保存后自动重试初始化。</summary>
+    private async Task PromptManualDataDirAsync()
+    {
+        var choice = MessageBox.Show(
+            "未能自动定位微信数据目录。是否手动选择？\n\n" +
+            "请选择包含 db_storage 的账号目录，例如：\n" +
+            "…\\xwechat_files\\wxid_xxxxxxxx_xxxx\\（也可直接选其中的 db_storage 文件夹）",
+            "手动指定微信数据目录", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (choice != MessageBoxResult.Yes) return;
+
+        var dialog = new OpenFolderDialog
+        {
+            Title = "请选择微信数据目录（含 db_storage 的 wxid 账号目录）",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        };
+        if (dialog.ShowDialog() != true) return;
+        var chosen = dialog.FolderName;
+        if (string.IsNullOrWhiteSpace(chosen)) return;
+
+        AppendLog($"手动指定数据目录：{chosen}");
+        try
+        {
+            await _wxCli.SetCustomDataDirAsync(chosen);
+            AppendLog("已保存数据目录配置，正在重新初始化…");
+            StatusText = "准备数据中…";
+            await _wxCli.PrepareDataAsync(AppendLog, ReportProgress);
+            await LoadContactsInternalAsync(showErrorDialog: true);
+            ShowAlert("数据准备完成，现在可以导出聊天记录了。");
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
         }
     }
 

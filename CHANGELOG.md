@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.13.1] - 2026-08-23
+
+### Fixed
+- **Windows 自动检测微信数据目录失败（微信 4.1.13+ 报「未能自动检测到微信数据目录 / 找不到 config.json」）**：
+  - 应用层新增微信数据目录自动检测：默认 Documents、OneDrive 重定向、注册表真实 Documents、微信旧版注册表、全盘扫描（深度 ≤3）
+  - 检测到目录后自动写入 `%USERPROFILE%\.wx-cli\config.json` 的 `db_dir`，并以 `init --force --data-dir` 重试
+  - 自动检测仍失败时，应用会询问并支持手动选择微信数据目录（含 db_storage 的账号目录）
+- **Windows 微信 4.1.12+ 密钥提取失败（报「成功提取 0 个数据库密钥 / 无法解密 session.db」）**：
+  - 应用层新增微信 4.x 密钥提取器：扫描 Weixin.exe 进程内存（GetKeyAddrStub 模式 + 设备类型字符串向前扫），用数据库 salt + HMAC-SHA512 真实校验
+  - 提取成功后写入 `all_keys.json` 与 config.json（keys_file / your_wxid）并重新初始化
+  - wx-cli 仍无法使用外部密钥时，应用层直接解密全部数据库到 `%USERPROFILE%\.wx-cli\cache\<账号>\db_storage` 供读取
+
+### Changed
+- Windows 内置 wx-cli 支持范围说明更新：微信 4.1.7–4.1.11 直接支持；4.1.12+ 由应用层密钥提取兜底
+
 ## [2.13.0] - 2026-08-06
 
 ### Added

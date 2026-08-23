@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Win32;
 using WeChatExporter.Models;
 
 namespace WeChatExporter.Services;
@@ -126,17 +127,42 @@ public sealed class WxCliService
                 }
                 catch (Exception ex)
                 {
-                    // init --force 失败时，尝试带 --data-dir 重试（支持非 C 盘数据目录）
+                    // init --force 失败：先应用层自动检测数据目录（#31），再尝试应用层提取密钥（#32，兼容微信 4.1.12+）
                     log($"init --force 失败：{ex.Message}");
-                    if (!string.IsNullOrWhiteSpace(savedDbDir) && Directory.Exists(savedDbDir))
+
+                    var dataDir = savedDbDir;
+                    if (string.IsNullOrWhiteSpace(dataDir) || !Directory.Exists(dataDir))
                     {
-                        log($"使用自定义数据目录重试：{savedDbDir}");
-                        progress?.Invoke(tracker.Warmup("正在使用自定义数据目录重新初始化…"));
-                        await RunAsync(["init", "--force", "--data-dir", savedDbDir], null, log, cancellationToken);
+                        log("正在自动检测微信数据目录…");
+                        progress?.Invoke(tracker.Warmup("正在自动检测微信数据目录…"));
+                        dataDir = DetectWeChatDataDir(log);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dataDir) && Directory.Exists(dataDir))
+                    {
+                        log($"使用数据目录：{dataDir}");
+                        await WriteDataDirToConfigAsync(configPath, dataDir, log);
+                        try
+                        {
+                            progress?.Invoke(tracker.Warmup("正在使用数据目录重新初始化…"));
+                            await RunAsync(["init", "--force", "--data-dir", dataDir], null, log, cancellationToken);
+                        }
+                        catch (Exception ex2)
+                        {
+                            log($"使用数据目录初始化失败：{ex2.Message}");
+                            // 检测到目录但初始化仍失败（通常是密钥提取失败）→ 应用层密钥提取
+                            var recovered = await TryRecoverKeyAsync(configPath, dataDir, log, progress, tracker, cancellationToken);
+                            if (!recovered)
+                            {
+                                log("尝试不使用 --force 重新初始化…");
+                                progress?.Invoke(tracker.Warmup("正在重新初始化…"));
+                                await RunAsync(["init"], null, log, cancellationToken);
+                            }
+                        }
                     }
                     else
                     {
-                        log("尝试不使用 --force 重新初始化…");
+                        log("未能自动检测到微信数据目录，尝试不使用 --force 重新初始化…");
                         progress?.Invoke(tracker.Warmup("正在重新初始化…"));
                         await RunAsync(["init"], null, log, cancellationToken);
                     }
@@ -194,6 +220,351 @@ public sealed class WxCliService
         }
         await File.WriteAllBytesAsync(configPath, writer.ToArray());
         log($"已恢复自定义数据目录配置：{dbDir}");
+    }
+
+    /// <summary>UI 手动设置微信数据目录（写入 config.json 的 db_dir）。</summary>
+    public async Task SetCustomDataDirAsync(string dbDir)
+    {
+        var configPath = GetConfigPath();
+        await WriteDataDirToConfigAsync(configPath, dbDir, _ => { });
+    }
+
+    /// <summary>
+    /// 自动检测微信 4.x 数据目录（返回含数据库的 db_storage 目录完整路径）。
+    /// 依次检查：默认 Documents、OneDrive 重定向、注册表真实 Documents、微信旧版注册表、全盘扫描。
+    /// </summary>
+    public static string? DetectWeChatDataDir(Action<string>? log = null)
+    {
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        // 1) 默认 Documents\xwechat_files
+        roots.Add(Path.Combine(userProfile, "Documents", "xwechat_files"));
+        // 2) OneDrive 重定向的 Documents
+        foreach (var env in new[] { "OneDrive", "OneDriveConsumer", "OneDriveCommercial" })
+        {
+            var od = Environment.GetEnvironmentVariable(env);
+            if (!string.IsNullOrWhiteSpace(od))
+                roots.Add(Path.Combine(od, "Documents", "xwechat_files"));
+        }
+        // 3) 注册表 User Shell Folders\Personal（真实 Documents 路径，兼容 OneDrive 重定向）
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders");
+            var personal = key?.GetValue("Personal") as string;
+            if (!string.IsNullOrWhiteSpace(personal))
+            {
+                var expanded = Environment.ExpandEnvironmentVariables(personal);
+                roots.Add(Path.Combine(expanded, "xwechat_files"));
+            }
+        }
+        catch { /* 忽略注册表读取失败 */ }
+
+        // 4) 微信旧版注册表 FileSavePath
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Tencent\WeChat");
+            var savePath = key?.GetValue("FileSavePath") as string;
+            if (!string.IsNullOrWhiteSpace(savePath))
+            {
+                var expanded = Environment.ExpandEnvironmentVariables(savePath);
+                roots.Add(Path.Combine(expanded, "xwechat_files"));
+                roots.Add(Path.Combine(expanded, "WeChat Files"));
+            }
+        }
+        catch { /* 忽略 */ }
+
+        // 5) 全盘扫描 xwechat_files（固定盘，深度 ≤ 3）
+        try
+        {
+            foreach (var drive in DriveInfo.GetDrives()
+                         .Where(d => d.IsReady && d.DriveType == DriveType.Fixed))
+            {
+                foreach (var root in ScanForXwechatFiles(drive.RootDirectory.FullName, 0, 3))
+                    roots.Add(root);
+            }
+        }
+        catch { /* 忽略枚举失败 */ }
+
+        var existing = roots.Where(Directory.Exists).ToList();
+        if (existing.Count == 0)
+        {
+            log?.Invoke("常见位置与全盘扫描均未发现 xwechat_files 目录");
+            return null;
+        }
+
+        // 在候选根目录下找账号目录（含 db_storage 且内有 .db），取最新
+        string? best = null;
+        var bestTime = DateTime.MinValue;
+        foreach (var root in existing)
+        {
+            foreach (var accountDir in SafeEnumerateDirectories(root))
+            {
+                if (string.Equals(Path.GetFileName(accountDir), "all_users", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var dbStorage = Path.Combine(accountDir, "db_storage");
+                if (!Directory.Exists(dbStorage)) continue;
+                try
+                {
+                    if (!Directory.EnumerateFiles(dbStorage, "*.db", SearchOption.AllDirectories).Any())
+                        continue;
+                }
+                catch { continue; }
+
+                var t = Directory.GetLastWriteTime(accountDir);
+                if (t > bestTime) { bestTime = t; best = dbStorage; }
+            }
+        }
+
+        if (best is null)
+        {
+            log?.Invoke("找到 xwechat_files 目录，但未发现含数据库的账号目录");
+            return null;
+        }
+        log?.Invoke($"检测到微信数据目录：{best}");
+        return best;
+    }
+
+    /// <summary>
+    /// 密钥提取失败时尝试应用层恢复（兼容微信 4.1.12+）：
+    /// 内存扫描提取 rawKey → 写入 all_keys.json/config → 重试 init → 失败则应用层解密到缓存目录。
+    /// 返回 true 表示已完成初始化。
+    /// </summary>
+    private async Task<bool> TryRecoverKeyAsync(string configPath, string dataDir, Action<string> log,
+        Action<LoadProgressUpdate>? progress, LoadProgressTracker tracker, CancellationToken cancellationToken)
+    {
+        var dbStorage = ResolveDbStorageDir(dataDir);
+        var verifyDb = FindVerifyDb(dbStorage);
+        if (verifyDb is null)
+        {
+            log("数据目录中未找到可校验的加密数据库");
+            return false;
+        }
+
+        log("正在扫描微信进程内存提取密钥（兼容微信 4.1.12+）…");
+        progress?.Invoke(tracker.Warmup("正在扫描内存提取密钥…"));
+        var rawKey = WeChatKeyExtractor.ExtractRawKey(verifyDb, log, cancellationToken);
+        if (rawKey is null)
+        {
+            log("未能从内存提取密钥。请确认：微信已登录并保持运行；已以管理员身份运行本程序；若仍失败，可能是微信版本过新（>4.1.11）。");
+            return false;
+        }
+
+        await WriteKeysAsync(configPath, dbStorage!, rawKey, log);
+
+        // 重新初始化（不带 --force，期望 wx-cli 读取已写入的密钥）
+        log("密钥已写入，重新初始化…");
+        try
+        {
+            await RunAsync(["init"], null, log, cancellationToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log($"带密钥初始化失败：{ex.Message}");
+        }
+
+        // 兜底：应用层解密全部数据库到 wx-cli 缓存目录
+        log("正在尝试应用层解密数据库到缓存目录…");
+        progress?.Invoke(tracker.Warmup("正在应用层解密数据库…"));
+        var cacheDir = Path.Combine(
+            Path.GetDirectoryName(configPath)!,
+            "cache", AccountNameFromDir(dbStorage!), "db_storage");
+        try
+        {
+            var count = DecryptAllTo(rawKey, dbStorage!, cacheDir, log, cancellationToken);
+            log($"已解密 {count} 个数据库到 {cacheDir}");
+        }
+        catch (Exception ex)
+        {
+            log($"应用层解密失败：{ex.Message}");
+            return false;
+        }
+
+        try
+        {
+            await RunAsync(["init"], null, log, cancellationToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log($"缓存解密后初始化仍失败：{ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>将 rawKey 派生的各库加密密钥写入 all_keys.json，并更新 config.json 的 keys_file/your_wxid。</summary>
+    private static async Task WriteKeysAsync(string configPath, string dbStorageDir, byte[] rawKey, Action<string> log)
+    {
+        var keys = new Dictionary<string, object>();
+        foreach (var dbPath in Directory.EnumerateFiles(dbStorageDir, "*.db", SearchOption.AllDirectories))
+        {
+            var salt = WeChatDbCrypto.ReadSalt(dbPath);
+            if (salt is null) continue;
+            var encKey = WeChatDbCrypto.DeriveEncKey(rawKey, salt);
+            var rel = Path.GetRelativePath(dbStorageDir, dbPath).Replace('\\', '/');
+            keys[rel] = new { enc_key = Convert.ToHexString(encKey).ToLowerInvariant() };
+        }
+
+        var keysFile = Path.Combine(Path.GetDirectoryName(configPath)!, "all_keys.json");
+        await File.WriteAllTextAsync(keysFile,
+            JsonSerializer.Serialize(keys, new JsonSerializerOptions { WriteIndented = true }));
+        log($"应用层密钥已写入：{keysFile}（{keys.Count} 个库）");
+
+        await UpdateConfigFieldsAsync(configPath, new Dictionary<string, string>
+        {
+            ["keys_file"] = keysFile,
+            ["your_wxid"] = AccountNameFromDir(dbStorageDir),
+        }, log);
+    }
+
+    /// <summary>应用层解密 db_storage 下全部数据库到目标目录（保持相对结构）。</summary>
+    private static int DecryptAllTo(byte[] rawKey, string dbStorageDir, string destDir, Action<string> log, CancellationToken ct)
+    {
+        var count = 0;
+        foreach (var dbPath in Directory.EnumerateFiles(dbStorageDir, "*.db", SearchOption.AllDirectories))
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var rel = Path.GetRelativePath(dbStorageDir, dbPath);
+                var dest = Path.Combine(destDir, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                var plain = WeChatDbCrypto.DecryptDatabase(rawKey, dbPath);
+                File.WriteAllBytes(dest, plain);
+                count++;
+            }
+            catch (Exception ex)
+            {
+                log($"解密失败：{Path.GetFileName(dbPath)}（{ex.Message}）");
+            }
+        }
+        return count;
+    }
+
+    private static string? ResolveDbStorageDir(string dataDir)
+    {
+        if (Directory.Exists(Path.Combine(dataDir, "db_storage")))
+            return Path.Combine(dataDir, "db_storage");
+        if (Path.GetFileName(dataDir).Equals("db_storage", StringComparison.OrdinalIgnoreCase)
+            && Directory.Exists(dataDir))
+            return dataDir;
+        foreach (var account in SafeEnumerateDirectories(dataDir))
+        {
+            var dbStorage = Path.Combine(account, "db_storage");
+            if (Directory.Exists(dbStorage)) return dbStorage;
+        }
+        return Directory.Exists(dataDir) ? dataDir : null;
+    }
+
+    /// <summary>选择用于密钥校验的数据库（优先消息库，其次任意最大的 .db）。</summary>
+    private static string? FindVerifyDb(string? dbStorageDir)
+    {
+        if (string.IsNullOrEmpty(dbStorageDir) || !Directory.Exists(dbStorageDir)) return null;
+        foreach (var rel in new[]
+                 {
+                     @"message\message_0.db",
+                     @"session\session.db",
+                     @"favorite\favorite_fts.db",
+                     @"head_image\head_image.db",
+                 })
+        {
+            var p = Path.Combine(dbStorageDir, rel);
+            if (File.Exists(p) && new FileInfo(p).Length >= WeChatDbCrypto.PageSize) return p;
+        }
+        try
+        {
+            return Directory.EnumerateFiles(dbStorageDir, "*.db", SearchOption.AllDirectories)
+                .Where(f => new FileInfo(f).Length >= WeChatDbCrypto.PageSize)
+                .OrderByDescending(f => new FileInfo(f).Length)
+                .FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>从 db_storage 路径提取账号目录名（如 wxid_xxx_xxxx）。</summary>
+    private static string AccountNameFromDir(string dbStorageDir)
+    {
+        var dir = dbStorageDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (Path.GetFileName(dir).Equals("db_storage", StringComparison.OrdinalIgnoreCase))
+            dir = Path.GetDirectoryName(dir) ?? dir;
+        return Path.GetFileName(dir);
+    }
+
+    /// <summary>写 db_dir 到 config.json（不存在则创建）。</summary>
+    private static async Task WriteDataDirToConfigAsync(string configPath, string dbDir, Action<string> log)
+    {
+        var dir = Path.GetDirectoryName(configPath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+        if (!File.Exists(configPath))
+        {
+            await File.WriteAllTextAsync(configPath,
+                JsonSerializer.Serialize(new { db_dir = dbDir },
+                    new JsonSerializerOptions { WriteIndented = true }));
+            log($"已创建配置并写入数据目录：{configPath}");
+            return;
+        }
+        await UpdateConfigFieldsAsync(configPath, new Dictionary<string, string> { ["db_dir"] = dbDir }, log);
+    }
+
+    /// <summary>合并更新 config.json 中的字符串字段（保留其他字段）。</summary>
+    private static async Task UpdateConfigFieldsAsync(string configPath, IReadOnlyDictionary<string, string> updates, Action<string> log)
+    {
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(configPath));
+        var writer = new MemoryStream();
+        using (var jsonWriter = new Utf8JsonWriter(writer, new JsonWriterOptions { Indented = true }))
+        {
+            jsonWriter.WriteStartObject();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (updates.TryGetValue(prop.Name, out var newValue))
+                    jsonWriter.WriteString(prop.Name, newValue);
+                else
+                    prop.WriteTo(jsonWriter);
+            }
+            foreach (var (name, value) in updates)
+            {
+                if (!doc.RootElement.TryGetProperty(name, out _))
+                    jsonWriter.WriteString(name, value);
+            }
+            jsonWriter.WriteEndObject();
+        }
+        await File.WriteAllBytesAsync(configPath, writer.ToArray());
+        log($"已更新配置：{string.Join("、", updates.Keys)}");
+    }
+
+    /// <summary>深度受限地枚举目录，权限错误静默跳过。</summary>
+    private static IEnumerable<string> ScanForXwechatFiles(string dir, int depth, int maxDepth)
+    {
+        if (depth > maxDepth) yield break;
+        IEnumerable<string> subDirs;
+        try { subDirs = Directory.EnumerateDirectories(dir); }
+        catch { yield break; }
+
+        foreach (var sub in subDirs)
+        {
+            var name = Path.GetFileName(sub);
+            if (name.Equals("xwechat_files", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return sub;
+                continue;
+            }
+            if (name is "Windows" or "$Recycle.Bin" or "System Volume Information" or "Recovery" or "Program Files" or "Program Files (x86)")
+                continue;
+            foreach (var found in ScanForXwechatFiles(sub, depth + 1, maxDepth))
+                yield return found;
+        }
+    }
+
+    private static IEnumerable<string> SafeEnumerateDirectories(string dir)
+    {
+        try { return Directory.EnumerateDirectories(dir); }
+        catch { return []; }
     }
 
     public async Task<IReadOnlyList<ContactItem>> LoadSessionsAsync(
