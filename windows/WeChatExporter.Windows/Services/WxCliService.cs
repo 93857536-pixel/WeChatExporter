@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 using WeChatExporter.Models;
 
@@ -118,68 +119,21 @@ public sealed class WxCliService
         {
             if (needsInit || !File.Exists(configPath))
             {
-                progress?.Invoke(tracker.Warmup("正在初始化（扫描密钥并解密数据库）…"));
-                log("正在初始化（扫描密钥并解密数据库，约 1-3 分钟）…");
-                log("提示：若失败，请以管理员身份重新打开本程序。");
-                try
-                {
-                    await RunAsync(["init", "--force"], null, log, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    // init --force 失败：先应用层自动检测数据目录（#31），再尝试应用层提取密钥（#32，兼容微信 4.1.12+）
-                    log($"init --force 失败：{ex.Message}");
-
-                    var dataDir = savedDbDir;
-                    if (string.IsNullOrWhiteSpace(dataDir) || !Directory.Exists(dataDir))
-                    {
-                        log("正在自动检测微信数据目录…");
-                        progress?.Invoke(tracker.Warmup("正在自动检测微信数据目录…"));
-                        dataDir = DetectWeChatDataDir(log);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(dataDir) && Directory.Exists(dataDir))
-                    {
-                        log($"使用数据目录：{dataDir}");
-                        await WriteDataDirToConfigAsync(configPath, dataDir, log);
-                        try
-                        {
-                            progress?.Invoke(tracker.Warmup("正在使用数据目录重新初始化…"));
-                            await RunAsync(["init", "--force", "--data-dir", dataDir], null, log, cancellationToken);
-                        }
-                        catch (Exception ex2)
-                        {
-                            log($"使用数据目录初始化失败：{ex2.Message}");
-                            // 检测到目录但初始化仍失败（通常是密钥提取失败）→ 应用层密钥提取
-                            var recovered = await TryRecoverKeyAsync(configPath, dataDir, log, progress, tracker, cancellationToken);
-                            if (!recovered)
-                            {
-                                log("尝试不使用 --force 重新初始化…");
-                                progress?.Invoke(tracker.Warmup("正在重新初始化…"));
-                                await RunAsync(["init"], null, log, cancellationToken);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        log("未能自动检测到微信数据目录，尝试不使用 --force 重新初始化…");
-                        progress?.Invoke(tracker.Warmup("正在重新初始化…"));
-                        await RunAsync(["init"], null, log, cancellationToken);
-                    }
-                }
-
-                // init --force 可能覆盖了 config.json，恢复用户自定义的 db_dir
-                if (!string.IsNullOrWhiteSpace(savedDbDir) && File.Exists(configPath))
-                {
-                    try { await RestoreDbDirToConfigAsync(configPath, savedDbDir, log); }
-                    catch (Exception ex) { log($"警告：恢复 db_dir 配置失败：{ex.Message}"); }
-                }
+                await InitFreshAsync(configPath, savedDbDir, log, progress, tracker, cancellationToken);
             }
             else
             {
                 log("使用已保存的密钥与缓存");
                 progress?.Invoke(tracker.Warmup("正在同步本地缓存…"));
-                await RunAsync(["init"], null, log, cancellationToken);
+                var cachedOutput = await RunAsync(["init"], null, log, cancellationToken);
+                if (HasZeroKeysExtracted(cachedOutput))
+                {
+                    // 缓存密钥失效（微信重装 / 升级 / 换号导致 rawKey 变化）：清除失效密钥后重新完整初始化（#33）
+                    log("已保存的密钥已失效（wx-cli 提取到 0 个数据库密钥），正在重新初始化…");
+                    try { await ClearSavedKeysAsync(configPath, log); }
+                    catch (Exception ex) { log($"清除失效密钥失败：{ex.Message}"); }
+                    await InitFreshAsync(configPath, savedDbDir, log, progress, tracker, cancellationToken);
+                }
             }
 
             progress?.Invoke(tracker.Complete("数据准备完成"));
@@ -189,6 +143,121 @@ public sealed class WxCliService
         {
             tickCts.Cancel();
         }
+    }
+
+    /// <summary>
+    /// 完整初始化流程（init --force 等）。
+    /// #33：wx-cli 在「提取到 0 个数据库密钥」时仍返回退出码 0（误判成功），
+    /// 此处解析其输出并拦截，转应用层数据目录检测 + 密钥提取兜底（#31 / #32）。
+    /// </summary>
+    private async Task InitFreshAsync(string configPath, string? savedDbDir, Action<string> log,
+        Action<LoadProgressUpdate>? progress, LoadProgressTracker tracker, CancellationToken cancellationToken)
+    {
+        progress?.Invoke(tracker.Warmup("正在初始化（扫描密钥并解密数据库）…"));
+        log("正在初始化（扫描密钥并解密数据库，约 1-3 分钟）…");
+        log("提示：若失败，请以管理员身份重新打开本程序。");
+        try
+        {
+            var output = await RunAsync(["init", "--force"], null, log, cancellationToken);
+            ThrowIfInitFailedToExtractKeys(output);
+        }
+        catch (Exception ex)
+        {
+            // init --force 失败或误报成功：先应用层自动检测数据目录（#31），再尝试应用层提取密钥（#32/#33，兼容微信 4.1.12+）
+            log($"init --force 失败：{ex.Message}");
+
+            var dataDir = savedDbDir;
+            if (string.IsNullOrWhiteSpace(dataDir) || !Directory.Exists(dataDir))
+            {
+                log("正在自动检测微信数据目录…");
+                progress?.Invoke(tracker.Warmup("正在自动检测微信数据目录…"));
+                dataDir = DetectWeChatDataDir(log);
+            }
+
+            if (!string.IsNullOrWhiteSpace(dataDir) && Directory.Exists(dataDir))
+            {
+                log($"使用数据目录：{dataDir}");
+                await WriteDataDirToConfigAsync(configPath, dataDir, log);
+                try
+                {
+                    progress?.Invoke(tracker.Warmup("正在使用数据目录重新初始化…"));
+                    var output2 = await RunAsync(["init", "--force", "--data-dir", dataDir], null, log, cancellationToken);
+                    ThrowIfInitFailedToExtractKeys(output2);
+                }
+                catch (Exception ex2)
+                {
+                    log($"使用数据目录初始化失败：{ex2.Message}");
+                    // 检测到目录但初始化仍失败（通常是密钥提取失败）→ 应用层密钥提取
+                    var recovered = await TryRecoverKeyAsync(configPath, dataDir, log, progress, tracker, cancellationToken);
+                    if (!recovered)
+                    {
+                        log("尝试不使用 --force 重新初始化…");
+                        progress?.Invoke(tracker.Warmup("正在重新初始化…"));
+                        var output3 = await RunAsync(["init"], null, log, cancellationToken);
+                        ThrowIfInitFailedToExtractKeys(output3);
+                    }
+                }
+            }
+            else
+            {
+                log("未能自动检测到微信数据目录，尝试不使用 --force 重新初始化…");
+                progress?.Invoke(tracker.Warmup("正在重新初始化…"));
+                var output4 = await RunAsync(["init"], null, log, cancellationToken);
+                ThrowIfInitFailedToExtractKeys(output4);
+            }
+        }
+
+        // init --force 可能覆盖了 config.json，恢复用户自定义的 db_dir
+        if (!string.IsNullOrWhiteSpace(savedDbDir) && File.Exists(configPath))
+        {
+            try { await RestoreDbDirToConfigAsync(configPath, savedDbDir, log); }
+            catch (Exception ex) { log($"警告：恢复 db_dir 配置失败：{ex.Message}"); }
+        }
+    }
+
+    /// <summary>清除已保存的密钥（删除 all_keys.json，并移除 config.json 中的 keys_file / your_wxid 字段）。</summary>
+    private static async Task ClearSavedKeysAsync(string configPath, Action<string> log)
+    {
+        var keysFile = Path.Combine(Path.GetDirectoryName(configPath)!, "all_keys.json");
+        if (File.Exists(keysFile))
+        {
+            File.Delete(keysFile);
+            log($"已删除失效密钥文件：{keysFile}");
+        }
+
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(configPath));
+        var writer = new MemoryStream();
+        using (var jsonWriter = new Utf8JsonWriter(writer, new JsonWriterOptions { Indented = true }))
+        {
+            jsonWriter.WriteStartObject();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.NameEquals("keys_file") || prop.NameEquals("your_wxid"))
+                    continue;
+                prop.WriteTo(jsonWriter);
+            }
+            jsonWriter.WriteEndObject();
+        }
+        await File.WriteAllBytesAsync(configPath, writer.ToArray());
+        log("已清除 config.json 中的 keys_file / your_wxid");
+    }
+
+    /// <summary>
+    /// 判断 wx-cli init 输出是否为「0 个密钥却返回成功」的误判（#33）。
+    /// 匹配其输出中的 “成功提取 N 个数据库密钥”；输出不含该模式时不拦截（fail-open）。
+    /// </summary>
+    private static bool HasZeroKeysExtracted(string output)
+    {
+        var match = Regex.Match(output, @"成功提取\s*(\d+)\s*个数据库密钥");
+        return match.Success && int.Parse(match.Groups[1].Value) == 0;
+    }
+
+    /// <summary>wx-cli 误报成功（提取到 0 个密钥）时抛错，触发应用层兜底流程。</summary>
+    private static void ThrowIfInitFailedToExtractKeys(string output)
+    {
+        if (!HasZeroKeysExtracted(output)) return;
+        throw new InvalidOperationException(
+            "wx-cli 返回成功但未提取到任何数据库密钥（成功提取 0 个数据库密钥）。常见原因：未以管理员身份运行（无法读取微信进程内存）、微信未登录、或微信版本过新。正在切换应用层密钥提取兜底…");
     }
 
     /// <summary>

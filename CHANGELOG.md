@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.13.2] - 2026-08-25
+
+### Fixed
+- **Windows 微信 4.1.13.7 无法解密（报「成功提取 0 个数据库密钥 / 无法加载 session.db」）**：
+  - 修复 wx-cli 在「提取到 0 个数据库密钥」时仍返回成功（退出码 0）的误判：`init` 后解析输出，检测到 0 密钥立即切换应用层数据目录检测 + 内存密钥提取兜底，不再带着空密钥继续导致 session.db 加载失败
+  - 程序启动时自动请求管理员权限（UAC，manifest `requireAdministrator`），确保能以管理员权限读取 Weixin.exe 进程内存（微信 4.1.12+ 的新进程，旧流程仅扫描 WeChat.exe）
+  - 已保存密钥失效（微信重装 / 升级 / 换号导致 rawKey 变化）时自动清除失效密钥并重新完整初始化
+
 ## [2.13.1] - 2026-08-23
 
 ### Fixed

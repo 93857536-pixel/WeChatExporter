@@ -4,8 +4,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- 密钥扫描需要读取微信进程内存，建议以管理员身份运行 -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+        <!-- 读取微信进程内存需要管理员权限，启动时自动请求（微信 4.1.12+ 的 Weixin.exe 必须管理员才能 OpenProcess） -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>
