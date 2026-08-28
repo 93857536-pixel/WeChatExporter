@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.13.3] - 2026-08-28
+
+### Fixed
+- **Windows 导出报错「The requested operation requires an element of type 'Number', but the target element has type String」（#34）**：
+  - 导出表情包时查询 emoticon.db 使用类型安全的读取（GetValue + 转换），兼容微信不同版本中同一列声明为 TEXT / INTEGER / REAL / BLOB 的情况，不再因列类型与预期不符而中断导出
+- **Windows 微信 4.1.12+「准备数据」卡在 8% 不动、界面无响应（#35）**：
+  - wx-cli 全部命令增加超时保护（init 240s / sessions 300s / export 600s）：wx-cli 对部分微信版本挂起时自动终止进程，并自动切换应用层数据目录检测 + 内存密钥提取兜底，不再无限等待
+  - 日志与进度刷新改为异步批量派发（单帧最多 100 行），wx-cli 高频输出时窗口保持可响应，不再冻结
+
 ## [2.13.2] - 2026-08-25
 
 ### Fixed

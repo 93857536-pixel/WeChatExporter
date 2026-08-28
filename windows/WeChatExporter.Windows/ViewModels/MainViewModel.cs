@@ -14,6 +14,9 @@ namespace WeChatExporter.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly WxCliService _wxCli;
+    private readonly object _logGate = new();
+    private readonly List<string> _pendingLogLines = [];
+    private bool _logFlushQueued;
     private string _searchText = "";
     private string _exportPath;
     private string _statusText = "就绪";
@@ -414,11 +417,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ReportProgress(LoadProgressUpdate update)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.HasShutdownStarted) return;
+        // 异步派发：ticker/日志线程不会被 UI 队列阻塞（#35：同步 Invoke 在日志风暴下会冻结窗口）
+        dispatcher.BeginInvoke(new Action(() =>
         {
             OperationProgress = update.Fraction;
             OperationProgressLabel = update.Message;
-        });
+        }));
     }
 
     private void ClearProgress()
@@ -427,17 +433,46 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OperationProgressLabel = "";
     }
 
+    /// <summary>
+    /// 线程安全的日志写入：后台线程只入队（O(1)），UI 线程按帧批量刷新。
+    /// 避免 wx-cli 高频输出时同步 Dispatcher.Invoke 把 UI 线程淹没（#35）。
+    /// </summary>
     private void AppendLog(string message)
     {
         var line = message.Trim();
         if (string.IsNullOrEmpty(line)) return;
 
-        Application.Current.Dispatcher.Invoke(() =>
+        lock (_logGate)
         {
+            _pendingLogLines.Add(line);
+            if (_logFlushQueued) return;
+            _logFlushQueued = true;
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.HasShutdownStarted) return;
+        dispatcher.BeginInvoke(new Action(FlushLogs));
+    }
+
+    private void FlushLogs()
+    {
+        List<string> batch;
+        lock (_logGate)
+        {
+            batch = [.. _pendingLogLines];
+            _pendingLogLines.Clear();
+            _logFlushQueued = false;
+        }
+        if (batch.Count == 0) return;
+
+        // 单帧最多刷 100 行：日志风暴时丢弃中间行，保证窗口始终可响应
+        if (batch.Count > 100)
+            batch = batch[^100..];
+
+        foreach (var line in batch)
             Logs.Add(line);
-            while (Logs.Count > 300)
-                Logs.RemoveAt(0);
-        });
+        while (Logs.Count > 300)
+            Logs.RemoveAt(0);
     }
 
     private void ShowAlert(string message)

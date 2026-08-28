@@ -1,6 +1,8 @@
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
@@ -145,8 +147,8 @@ internal static class StickerPackExporter
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                var id = reader.GetString(0);
-                var name = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                var id = GetText(reader, 0);
+                var name = GetText(reader, 1);
                 if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
                     packNames[id] = name;
             }
@@ -159,13 +161,13 @@ internal static class StickerPackExporter
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                var md5 = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                var md5 = GetText(reader, 0);
                 if (string.IsNullOrEmpty(md5)) continue;
                 var entry = new LookupEntry(
-                    reader.IsDBNull(2) ? "" : reader.GetString(2),
-                    reader.IsDBNull(3) ? "" : reader.GetString(3),
-                    reader.IsDBNull(1) ? "" : reader.GetString(1),
-                    reader.IsDBNull(4) ? "" : reader.GetString(4),
+                    GetText(reader, 2),
+                    GetText(reader, 3),
+                    GetText(reader, 1),
+                    GetText(reader, 4),
                     "");
                 lookup[md5] = entry;
                 if (!string.IsNullOrEmpty(entry.ProductId) && !string.IsNullOrEmpty(entry.CdnUrl))
@@ -180,8 +182,8 @@ internal static class StickerPackExporter
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                var pkgId = reader.IsDBNull(0) ? "" : reader.GetString(0);
-                var md5 = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                var pkgId = GetText(reader, 0);
+                var md5 = GetText(reader, 1);
                 if (string.IsNullOrEmpty(md5) || lookup.ContainsKey(md5)) continue;
                 var cdnUrl = "";
                 if (pkgTemplates.TryGetValue(pkgId, out var template) && template.Contains('&'))
@@ -197,8 +199,8 @@ internal static class StickerPackExporter
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                var md5 = reader.IsDBNull(0) ? "" : reader.GetString(0);
-                var caption = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                var md5 = GetText(reader, 0);
+                var caption = GetText(reader, 1);
                 if (lookup.TryGetValue(md5, out var entry))
                     lookup[md5] = entry with { Caption = caption };
             }
@@ -213,6 +215,22 @@ internal static class StickerPackExporter
         cmd.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name=$name LIMIT 1";
         cmd.Parameters.AddWithValue("$name", table);
         return cmd.ExecuteScalar() is not null;
+    }
+
+    /// <summary>
+    /// 类型安全地读取文本列：兼容微信不同版本 emoticon.db 中同一列声明为
+    /// TEXT / INTEGER / REAL / BLOB 的情况（#34：GetString 读 INTEGER 列会抛
+    /// 「requires an element of type 'String', but the target element has type 'Number'」）。
+    /// </summary>
+    private static string GetText(SqliteDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal)) return "";
+        return reader.GetValue(ordinal) switch
+        {
+            string s => s,
+            byte[] bytes => Encoding.UTF8.GetString(bytes),
+            var v => Convert.ToString(v, CultureInfo.InvariantCulture) ?? ""
+        };
     }
 
     private static async Task<string?> DownloadStickerAsync(

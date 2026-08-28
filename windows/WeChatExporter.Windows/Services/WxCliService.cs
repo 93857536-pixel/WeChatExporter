@@ -13,6 +13,12 @@ namespace WeChatExporter.Services;
 /// </summary>
 public sealed class WxCliService
 {
+    // 各命令超时（秒）：wx-cli 对部分微信版本可能挂起（#35），超时后自动 kill 进程，
+    // 抛出的异常会触发应用层数据目录检测 + 内存密钥提取兜底，避免界面卡死在准备阶段。
+    private const int InitTimeoutSeconds = 240;      // init / init --force（扫描密钥 + 解密数据库）
+    private const int SessionsTimeoutSeconds = 300;  // sessions --json -n 999999
+    private const int ExportTimeoutSeconds = 600;    // export --limit 999999（超大聊天记录）
+
     public string ExecutablePath { get; }
     public bool IsBundled { get; }
 
@@ -158,7 +164,7 @@ public sealed class WxCliService
         log("提示：若失败，请以管理员身份重新打开本程序。");
         try
         {
-            var output = await RunAsync(["init", "--force"], null, log, cancellationToken);
+            var output = await RunAsync(["init", "--force"], InitTimeoutSeconds, log, cancellationToken);
             ThrowIfInitFailedToExtractKeys(output);
         }
         catch (Exception ex)
@@ -181,7 +187,7 @@ public sealed class WxCliService
                 try
                 {
                     progress?.Invoke(tracker.Warmup("正在使用数据目录重新初始化…"));
-                    var output2 = await RunAsync(["init", "--force", "--data-dir", dataDir], null, log, cancellationToken);
+                    var output2 = await RunAsync(["init", "--force", "--data-dir", dataDir], InitTimeoutSeconds, log, cancellationToken);
                     ThrowIfInitFailedToExtractKeys(output2);
                 }
                 catch (Exception ex2)
@@ -193,7 +199,7 @@ public sealed class WxCliService
                     {
                         log("尝试不使用 --force 重新初始化…");
                         progress?.Invoke(tracker.Warmup("正在重新初始化…"));
-                        var output3 = await RunAsync(["init"], null, log, cancellationToken);
+                        var output3 = await RunAsync(["init"], InitTimeoutSeconds, log, cancellationToken);
                         ThrowIfInitFailedToExtractKeys(output3);
                     }
                 }
@@ -202,7 +208,7 @@ public sealed class WxCliService
             {
                 log("未能自动检测到微信数据目录，尝试不使用 --force 重新初始化…");
                 progress?.Invoke(tracker.Warmup("正在重新初始化…"));
-                var output4 = await RunAsync(["init"], null, log, cancellationToken);
+                var output4 = await RunAsync(["init"], InitTimeoutSeconds, log, cancellationToken);
                 ThrowIfInitFailedToExtractKeys(output4);
             }
         }
@@ -426,7 +432,7 @@ public sealed class WxCliService
         log("密钥已写入，重新初始化…");
         try
         {
-            await RunAsync(["init"], null, log, cancellationToken);
+            await RunAsync(["init"], InitTimeoutSeconds, log, cancellationToken);
             return true;
         }
         catch (Exception ex)
@@ -453,7 +459,7 @@ public sealed class WxCliService
 
         try
         {
-            await RunAsync(["init"], null, log, cancellationToken);
+            await RunAsync(["init"], InitTimeoutSeconds, log, cancellationToken);
             return true;
         }
         catch (Exception ex)
@@ -651,10 +657,10 @@ public sealed class WxCliService
 
         try
         {
-            // Windows wx-cli sessions 仅支持 limit，无 offset；使用超大 limit 且无总超时
+            // Windows wx-cli sessions 仅支持 limit，无 offset；使用超大 limit 且带超时兜底
             var output = await RunAsync(
                 ["sessions", "--json", "-n", "999999"],
-                null,
+                SessionsTimeoutSeconds,
                 log,
                 cancellationToken);
 
@@ -695,14 +701,14 @@ public sealed class WxCliService
             "--format", "txt",
             "-o", txtPath,
             "--limit", "999999"
-        ], null, log, cancellationToken);
+        ], ExportTimeoutSeconds, log, cancellationToken);
 
         await RunAsync([
             "export", query,
             "--format", "json",
             "-o", jsonPath,
             "--limit", "999999"
-        ], null, log, cancellationToken);
+        ], ExportTimeoutSeconds, log, cancellationToken);
 
         if (includeMedia)
         {
@@ -714,7 +720,7 @@ public sealed class WxCliService
                     "--format", "markdown",
                     "-o", mdPath,
                     "--limit", "999999"
-                ], null, log, cancellationToken);
+                ], ExportTimeoutSeconds, log, cancellationToken);
             }
             catch (Exception ex)
             {
