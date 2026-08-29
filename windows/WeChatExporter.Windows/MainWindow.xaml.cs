@@ -20,6 +20,10 @@ public partial class MainWindow : Window
             ?? throw new InvalidOperationException(
                 "未找到 wx-cli。请重新安装应用，或确认 wx.exe 位于程序目录。");
 
+        // 首次启动：用户尚未就「诊断日志上传」做出选择时，先弹出条款窗。
+        if (!DiagnosticUploader.HasConsent)
+            new ConsentWindow().ShowDialog();
+
         _viewModel = new MainViewModel(wxCli);
         DataContext = _viewModel;
     }

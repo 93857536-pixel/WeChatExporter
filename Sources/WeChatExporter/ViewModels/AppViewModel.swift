@@ -36,6 +36,9 @@ final class AppViewModel: ObservableObject {
     // 设置面板当前选中的标签页（0=导出 1=更新 2=关于）
     @Published var settingsTab = 0
 
+    // 诊断日志上传条款弹窗（首次启动未选择时显示）
+    @Published var showConsent = false
+
     var currentVersion: String { UpdateService.shared.currentVersion }
     var currentBuild: String { UpdateService.shared.currentBuild }
     var lastCheckDate: Date? { UpdatePreferences.lastCheckDate }
@@ -48,6 +51,11 @@ final class AppViewModel: ObservableObject {
             .appendingPathComponent("Downloads/微信聊天记录导出", isDirectory: true)
             .path
         exportPath = defaultExport
+
+        // 首次启动且未选择诊断上传条款时，显示条款弹窗
+        if !DiagnosticUploader.isConsentDecided {
+            showConsent = true
+        }
 
         if let wxCli = WxCliService() {
             backend = .wxCli(wxCli)
@@ -183,7 +191,7 @@ final class AppViewModel: ObservableObject {
             showAlert = true
             isDataReady = true
         } catch {
-            presentError(error.localizedDescription)
+            presentError(error.localizedDescription, stage: DiagnosticUploader.stagePrepare)
         }
     }
 
@@ -207,7 +215,7 @@ final class AppViewModel: ObservableObject {
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
         } catch {
             isDataReady = false
-            presentError(error.localizedDescription)
+            presentError(error.localizedDescription, stage: DiagnosticUploader.stageLoadSessions)
         }
         if showProgress {
             isBusy = false
@@ -248,7 +256,7 @@ final class AppViewModel: ObservableObject {
             isDataReady = !contacts.isEmpty
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
         } catch {
-            presentError(error.localizedDescription)
+            presentError(error.localizedDescription, stage: DiagnosticUploader.stageLoadSessions)
         }
     }
 
@@ -262,7 +270,7 @@ final class AppViewModel: ObservableObject {
             try await prepareNativeData(paths: paths)
             await refreshContactsNative(paths: paths)
         } catch {
-            presentError(error.localizedDescription)
+            presentError(error.localizedDescription, stage: DiagnosticUploader.stagePrepare)
         }
     }
 
@@ -388,7 +396,7 @@ final class AppViewModel: ObservableObject {
             alertMessage = "已导出 \(selected.count) 个会话到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n导出方式：\(mode.displayName)"
             showAlert = true
         } catch {
-            presentError(error.localizedDescription)
+            presentError(error.localizedDescription, stage: DiagnosticUploader.stageExport)
         }
     }
 
@@ -592,10 +600,23 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    private func presentError(_ message: String) {
+    private func presentError(_ message: String, stage: String = DiagnosticUploader.stageOther) {
         appendLog("错误：\(message)")
+        DiagnosticUploader.reportIfAllowed(stage: stage, error: message, logs: logs)
         alertMessage = message
         showAlert = true
+    }
+
+    /// 诊断日志上传同意状态（绑定到 UserDefaults，设置面板开关用）
+    var diagnosticsConsented: Bool {
+        get { DiagnosticUploader.isConsented }
+        set { DiagnosticUploader.setConsented(newValue) }
+    }
+
+    /// 记录用户对诊断上传条款的选择（条款弹窗按钮调用）
+    func setDiagnosticsConsent(_ consented: Bool) {
+        DiagnosticUploader.setConsented(consented)
+        showConsent = false
     }
 }
 

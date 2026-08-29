@@ -1,0 +1,43 @@
+<Window x:Class="WeChatExporter.ConsentWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="诊断日志上传"
+        Width="540" Height="470"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="诊断日志上传" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                <TextBlock TextWrapping="Wrap" Foreground="#333" Margin="0,0,0,10"
+                           Text="为了让导出工具越来越稳定，当导出过程中发生错误时，本应用可以自动将以下诊断信息发送到开发者服务器："/>
+                <StackPanel Margin="12,0,0,10">
+                    <TextBlock TextWrapping="Wrap" Foreground="#333" Text="• 应用版本与操作系统版本" Margin="0,2"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="#333" Text="• 错误消息与错误发生时的操作步骤" Margin="0,2"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="#333" Text="• 程序运行日志的最后部分" Margin="0,2"/>
+                </StackPanel>
+                <TextBlock TextWrapping="Wrap" Foreground="#333" Margin="0,0,0,10"
+                           Text="这些信息仅包含技术诊断数据，不包含你的聊天内容、联系人信息、账号信息或任何个人隐私数据。"/>
+                <StackPanel Margin="12,0,0,10">
+                    <TextBlock TextWrapping="Wrap" Foreground="#333" Text="• 同意：导出报错时自动上传诊断信息，用于开发者分析并修复问题" Margin="0,2"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="#333" Text="• 不同意：应用功能完全不受影响，任何情况下都不会上传任何数据" Margin="0,2"/>
+                </StackPanel>
+                <TextBlock TextWrapping="Wrap" Foreground="#333"
+                           Text="你随时可以在「设置」中更改此选项。"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="同意并继续" Padding="18,6" Margin="0,0,10,0"
+                    Background="{StaticResource AccentBrush}" Foreground="White"
+                    BorderThickness="0" Click="Agree_Click"/>
+            <Button Content="不同意" Padding="18,6" Click="Decline_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

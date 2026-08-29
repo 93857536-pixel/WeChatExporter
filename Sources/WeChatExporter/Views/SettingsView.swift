@@ -211,6 +211,27 @@ private struct ExportSettingsTab: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            // 诊断日志上传
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("诊断日志上传")
+                            .font(.headline)
+                    }
+
+                    Toggle("自动上传诊断日志(报错时)", isOn: $model.diagnosticsConsented)
+                        .toggleStyle(.switch)
+
+                    Text("仅当导出过程中发生错误时，静默上传技术诊断数据（应用版本、错误信息、运行日志），不包含聊天内容、联系人或账号信息。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

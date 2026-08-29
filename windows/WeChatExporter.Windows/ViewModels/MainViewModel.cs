@@ -23,6 +23,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _isBusy;
     private bool _isDataReady;
     private bool _includeMedia;
+    private bool _diagnosticsConsented;
     private string? _alertMessage;
     private double? _operationProgress;
     private string _operationProgressLabel = "";
@@ -38,6 +39,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ContactsView = CollectionViewSource.GetDefaultView(Contacts);
         ContactsView.Filter = FilterContact;
         IsRunningAsAdmin = PlatformHelper.IsRunningAsAdministrator();
+        _diagnosticsConsented = DiagnosticUploader.IsConsented;
         AppendLog(wxCli.IsBundled ? "使用内置 wx-cli（即装即用）" : "使用系统 wx-cli");
         if (!IsRunningAsAdmin)
             AppendLog("提示：首次「准备数据」建议以管理员身份运行（可点击下方按钮）");
@@ -133,6 +135,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>是否报错时自动上传诊断日志（与 settings.json 双向同步，即时生效）。</summary>
+    public bool DiagnosticsConsented
+    {
+        get => _diagnosticsConsented;
+        set
+        {
+            if (_diagnosticsConsented == value) return;
+            _diagnosticsConsented = value;
+            OnPropertyChanged();
+            DiagnosticUploader.SetConsent(value);
+        }
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -223,6 +238,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             ShowError(ex.Message);
+            ReportDiagnostic("prepare", ex.Message);
             // 数据目录相关失败 → 询问用户手动选择微信数据目录
             if (ex.Message.Contains("数据目录", StringComparison.OrdinalIgnoreCase)
                 || ex.Message.Contains("db_dir", StringComparison.OrdinalIgnoreCase))
@@ -270,6 +286,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             ShowError(ex.Message);
+            ReportDiagnostic("prepare", ex.Message);
         }
     }
 
@@ -343,6 +360,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             ShowError(ex.Message);
+            ReportDiagnostic("export", ex.Message);
         }
         finally
         {
@@ -405,6 +423,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             IsDataReady = false;
+            ReportDiagnostic("load_sessions", ex.Message);
             if (showErrorDialog)
                 ShowError(ex.Message);
             else
@@ -486,6 +505,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         AppendLog($"错误：{message}");
         AlertMessage = message;
         MessageBox.Show(message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    /// <summary>fire-and-forget 上报诊断信息：快照当前日志后交给 DiagnosticUploader，失败静默。</summary>
+    private void ReportDiagnostic(string stage, string error)
+    {
+        try
+        {
+            var snapshot = Logs.ToList();
+            _ = DiagnosticUploader.ReportIfAllowedAsync(stage, error, snapshot);
+        }
+        catch
+        {
+            // 诊断上报自身异常静默，绝不影响业务。
+        }
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null)
