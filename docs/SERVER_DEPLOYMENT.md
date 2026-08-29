@@ -41,23 +41,24 @@ schtasks /Create /TN "WeChatExporterDiagWatchdog" /SC MINUTE /MO 5 /TR "powershe
 New-NetFirewallRule -DisplayName "WeChatExporter Diag" -Direction Inbound -Protocol TCP -LocalPort 8082 -Action Allow
 ```
 
-### 2.3 安装 Hermes agent (Windows 原生)
+### 2.3 安装 Hermes agent (Windows 原生)【2026-08-30 实测可行】
 ```powershell
-# 1) 安装 uv (Python 包管理器)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-# 2) 克隆 Hermes
-git clone https://github.com/NousResearch/hermes-agent C:\hermes-agent
-# 3) 创建 venv + 安装
-cd C:\hermes-agent
-uv venv C:\Users\Administrator\.hermes-agent-venv
-C:\Users\Administrator\.hermes-agent-venv\Scripts\activate
-uv pip install -e .
-# 4) 配置 (模型/密钥从本机复制: ~/.hermes/config.yaml 的 providers + .env 的 API keys)
-#    注意: 服务器只保留 deepseek/zai provider, 删除本地模型
-# 5) 安装 wechat-exporter-development skill
-hermes skill install ... (或直接复制本机 ~/.hermes/skills/software-development/wechat-exporter-development)
-# 6) gh 授权 (GitHub token, 需有 repo + push 权限)
-gh auth login
+# 1) 下载 uv (本机下载再 scp, 服务器 GitHub 直连慢): https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
+#    scp uv.zip → C:\tools\uv.zip; Expand-Archive → C:\tools\uv\uv.exe
+# 2) 克隆/解压 Hermes 源码 (同样本机下载 zip 再 scp): hermes-agent-main.zip → C:\hermes-agent-main
+# 3) 创建 venv
+& 'C:\tools\uv\uv.exe' venv C:\Users\Administrator\.hermes-agent-venv
+# 4) ⚠️ 安装必须用 cmd.exe 包装! PowerShell 5.1 把 uv 的 stderr 当 NativeCommandError 中止
+#    (uv pip install 的 "Using Python..." 输出走 stderr 触发 RemoteException)
+cmd /c ""C:\tools\uv\uv.exe" pip install --python "C:\Users\Administrator\.hermes-agent-venv\Scripts\python.exe" -e . > C:\tools\hermes-install4.log 2>&1"
+# 5) 验证
+& 'C:\Users\Administrator\.hermes-agent-venv\Scripts\hermes.exe' --version   # Hermes Agent v0.20.x
+# 6) 配置: C:\Users\Administrator\.hermes\config.yaml (model.deepseek + auxiliary.vision zai)
+#    .env: DEEPSEEK_API_KEY / GLM_API_KEY (scp 一次, 用完删)
+#    ⚠️ 首次启动会 pip install edge-tts(TTS) 卡住 → config.yaml 加:
+#       tts:\n  provider: off\n  enabled: false
+#    ⚠️ Start-Process 传中文参数要整体加引号, 否则被 PowerShell 拆成多参数
+# 7) 复制 skill: scp -r ~/.hermes/skills/software-development/wechat-exporter-development → 服务器同路径
 ```
 
 ### 2.4 部署自动修复闭环

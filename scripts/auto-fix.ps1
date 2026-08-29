@@ -60,8 +60,14 @@ Write-Log "调用 Hermes agent 修复…"
 # 调用服务器 Hermes(Windows 原生安装, venv 内 hermes.exe)
 $hermes = 'C:\Users\Administrator\.hermes-agent-venv\Scripts\hermes.exe'
 if (-not (Test-Path $hermes)) {
-    # 尝试 PATH 中的 hermes
-    $hermes = (Get-Command hermes -ErrorAction SilentlyContinue).Source
+    # 尝试 python -m hermes_cli
+    $py = 'C:\Users\Administrator\.hermes-agent-venv\Scripts\python.exe'
+    if (Test-Path $py) {
+        $hermes = $py
+        $hermesArgs = @('-m', 'hermes_cli')
+    } else {
+        $hermes = $null
+    }
 }
 if (-not $hermes) {
     Write-Log "未找到 hermes,跳过自动修复"
@@ -89,9 +95,16 @@ $reportBody
 # 后台运行 Hermes 修复(可能耗时 10-30 分钟),写日志文件
 $hermesLog = 'C:\WeChatExporterDiag\hermes-fix.log'
 $singleLine = $prompt -replace "`r`n", " "
-Start-Process -FilePath $hermes -ArgumentList @('chat', '-q', "`"$singleLine`"") `
-    -RedirectStandardOutput $hermesLog -RedirectStandardError "$hermesLog.err" `
-    -WindowStyle Hidden -Wait
+if ($hermesArgs) {
+    # python -m hermes_cli 模式
+    Start-Process -FilePath $hermes -ArgumentList ($hermesArgs + @('chat', '-q', "`"$singleLine`"")) `
+        -RedirectStandardOutput $hermesLog -RedirectStandardError "$hermesLog.err" `
+        -WindowStyle Hidden -Wait
+} else {
+    Start-Process -FilePath $hermes -ArgumentList @('chat', '-q', "`"$singleLine`"") `
+        -RedirectStandardOutput $hermesLog -RedirectStandardError "$hermesLog.err" `
+        -WindowStyle Hidden -Wait
+}
 
 Write-Log "Hermes 修复完成,日志: $hermesLog"
 
