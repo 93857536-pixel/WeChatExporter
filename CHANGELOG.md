@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.13.4] - 2026-08-29
+
+### Fixed
+- **Windows 使用时报「wx-daemon 启动超时（>Ns）」无法继续**：
+  - 新增 wx-daemon 启动失败自动恢复：检测到闭源 wx.exe 内部报「wx-daemon 启动超时」或「无法启动 daemon 进程」时，自动执行 `wx daemon stop` + 清理 `%APPDATA%\Tencent\xwechat\config\` 下的残留 daemon.pid / daemon.sock，等待管道释放后自动重试一次（覆盖残留状态、杀毒软件拦截、预热慢等常见原因）
+  - 修复 daemon 状态误判：wx.exe 的 `daemon status` 输出为中文（「wx-daemon 运行中 / 未运行」），旧代码用 Contains("ready"/"running") 判断对真实输出永远为 false，导致每次准备数据都强制重新 init（反复触发 daemon 拉起）；现改为中文「运行中」+ 英文兼容判断
+  - 失败时错误消息自动附上 `%APPDATA%\Tencent\xwechat\config\daemon.log` 尾部内容（最近 12 行），用户可直接看到 daemon 启动失败的真实原因
+
 ## [2.13.3] - 2026-08-28
 
 ### Fixed

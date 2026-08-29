@@ -19,6 +19,18 @@ public sealed class WxCliService
     private const int SessionsTimeoutSeconds = 300;  // sessions --json -n 999999
     private const int ExportTimeoutSeconds = 600;    // export --limit 999999（超大聊天记录）
 
+    // wx.exe（闭源）内部 daemon 启动失败标记：wx-cli 每次执行命令前自动拉起 wx-daemon 子进程，
+    // N 秒内连不上 named pipe \\.\pipe\wx-cli-daemon 即报「启动超时」并退出（残留 pid / 杀软拦截 / 预热慢）。
+    private const string DaemonStartTimeoutMarker = "wx-daemon 启动超时";
+    private const string DaemonStartFailedMarker = "无法启动 daemon 进程";
+
+    // daemon status 输出为中文（"wx-daemon 运行中 (PID x)" / "wx-daemon 未运行"），
+    // 旧代码用 Contains("ready"/"running") 对真实输出永远为 false，导致每次强制 init --force。
+    private static bool IsDaemonRunning(string status) =>
+        status.Contains("运行中", StringComparison.Ordinal)
+        || status.Contains("ready", StringComparison.OrdinalIgnoreCase)
+        || status.Contains("running", StringComparison.OrdinalIgnoreCase);
+
     public string ExecutablePath { get; }
     public bool IsBundled { get; }
 
@@ -72,8 +84,7 @@ public sealed class WxCliService
         try
         {
             var status = await RunAsync(["daemon", "status"], 30, _ => { }, cancellationToken);
-            return status.Contains("ready", StringComparison.OrdinalIgnoreCase)
-                   || status.Contains("running", StringComparison.OrdinalIgnoreCase);
+            return IsDaemonRunning(status);
         }
         catch
         {
@@ -92,8 +103,7 @@ public sealed class WxCliService
         log("检查 wx-cli 环境…");
 
         var status = await RunAsync(["daemon", "status"], 30, log, cancellationToken);
-        var needsInit = !status.Contains("ready", StringComparison.OrdinalIgnoreCase)
-                        && !status.Contains("running", StringComparison.OrdinalIgnoreCase);
+        var needsInit = !IsDaemonRunning(status);
 
         // 读取已有 config.json 中的 db_dir，防止 init --force 覆盖用户自定义配置
         var configPath = GetConfigPath();
@@ -776,6 +786,14 @@ public sealed class WxCliService
         int? timeoutSeconds,
         Action<string> log,
         CancellationToken cancellationToken)
+        => await RunAsyncCore(args, timeoutSeconds, log, cancellationToken, allowDaemonRecovery: true);
+
+    private async Task<string> RunAsyncCore(
+        IReadOnlyList<string> args,
+        int? timeoutSeconds,
+        Action<string> log,
+        CancellationToken cancellationToken,
+        bool allowDaemonRecovery)
     {
         var psi = new ProcessStartInfo
         {
@@ -825,6 +843,13 @@ public sealed class WxCliService
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            // daemon 拉起失败时 wx.exe 可能不退出（挂起），超时 kill 后同样清理残留并重试一次
+            if (allowDaemonRecovery && IsDaemonStartupFailure(stdout + "\n" + stderr))
+            {
+                log("检测到 wx-daemon 启动异常（命令挂起），正在清理残留 daemon 并重试…");
+                await RecoverDaemonAsync(log, cancellationToken);
+                return await RunAsyncCore(args, timeoutSeconds, log, cancellationToken, allowDaemonRecovery: false);
+            }
             throw new InvalidOperationException(
                 timeoutSeconds is int s
                     ? $"wx-cli 执行超时（>{s} 秒）。若尚未准备数据，请先点击「准备数据」；数据库较大时请耐心等待后重试。"
@@ -833,9 +858,86 @@ public sealed class WxCliService
 
         var combined = stdout + "\n" + stderr;
         if (process.ExitCode != 0)
-            throw new InvalidOperationException(TrimFailureOutput(combined));
+        {
+            // wx.exe 内部拉起 wx-daemon 失败（启动超时/无法启动）：清理残留后重试一次
+            if (allowDaemonRecovery && IsDaemonStartupFailure(combined))
+            {
+                log("检测到 wx-daemon 启动异常，正在清理残留 daemon 并重试…");
+                await RecoverDaemonAsync(log, cancellationToken);
+                return await RunAsyncCore(args, timeoutSeconds, log, cancellationToken, allowDaemonRecovery: false);
+            }
+            throw new InvalidOperationException(TrimFailureOutput(combined) + BuildDaemonLogHint(combined));
+        }
 
         return combined.ToString();
+    }
+
+    /// <summary>判断 wx-cli 输出是否为「wx-daemon 启动失败」（闭源 wx.exe 内部错误，非应用层文案）。</summary>
+    private static bool IsDaemonStartupFailure(string output) =>
+        output.Contains(DaemonStartTimeoutMarker, StringComparison.Ordinal)
+        || output.Contains(DaemonStartFailedMarker, StringComparison.Ordinal);
+
+    /// <summary>
+    /// 清理残留 wx-daemon：先 wx.exe daemon stop（干净停止），再删除 %APPDATA%\Tencent\xwechat\config\ 下
+    /// 的 daemon.pid / daemon.sock 残留（pid 残留会让新 daemon 误判"已运行"而连不上管道），最后等待管道释放。
+    /// </summary>
+    private async Task RecoverDaemonAsync(Action<string> log, CancellationToken cancellationToken)
+    {
+        try
+        {
+            log("正在停止残留 wx-daemon…");
+            await RunAsyncCore(["daemon", "stop"], 20, log, cancellationToken, allowDaemonRecovery: false);
+        }
+        catch (Exception ex)
+        {
+            log($"停止残留 wx-daemon 失败（忽略）：{ex.Message}");
+        }
+
+        var cfgDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Tencent", "xwechat", "config");
+        foreach (var name in new[] { "daemon.pid", "daemon.sock" })
+        {
+            try
+            {
+                var p = Path.Combine(cfgDir, name);
+                if (File.Exists(p))
+                {
+                    File.Delete(p);
+                    log($"已清理残留文件：{p}");
+                }
+            }
+            catch (Exception ex)
+            {
+                log($"清理残留文件失败：{name}（{ex.Message}）");
+            }
+        }
+
+        await Task.Delay(1500, cancellationToken);
+    }
+
+    /// <summary>daemon 启动失败时附加 %APPDATA%\Tencent\xwechat\config\daemon.log 尾部，便于用户直接定位根因。</summary>
+    private static string BuildDaemonLogHint(string failureOutput)
+    {
+        if (!IsDaemonStartupFailure(failureOutput))
+            return "";
+        var logPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Tencent", "xwechat", "config", "daemon.log");
+        try
+        {
+            if (!File.Exists(logPath))
+                return $"\n\n提示：wx-daemon 日志不存在（{logPath}）。常见原因：残留 daemon.pid 或杀毒软件拦截 wx-daemon 子进程。";
+            var lines = File.ReadAllLines(logPath)
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .TakeLast(12);
+            var tail = string.Join("\n", lines);
+            return $"\n\n—— wx-daemon 日志尾部（{logPath}）——\n{tail}";
+        }
+        catch (Exception ex)
+        {
+            return $"\n\n提示：读取 wx-daemon 日志失败（{ex.Message}）。日志位置：{logPath}";
+        }
     }
 
     private static string TrimFailureOutput(string text)
