@@ -94,17 +94,11 @@ $reportBody
 
 # 后台运行 Hermes 修复(可能耗时 10-30 分钟),写日志文件
 $hermesLog = 'C:\WeChatExporterDiag\hermes-fix.log'
-$singleLine = $prompt -replace "`r`n", " "
-if ($hermesArgs) {
-    # python -m hermes_cli 模式
-    Start-Process -FilePath $hermes -ArgumentList ($hermesArgs + @('chat', '-q', "`"$singleLine`"")) `
-        -RedirectStandardOutput $hermesLog -RedirectStandardError "$hermesLog.err" `
-        -WindowStyle Hidden -Wait
-} else {
-    Start-Process -FilePath $hermes -ArgumentList @('chat', '-q', "`"$singleLine`"") `
-        -RedirectStandardOutput $hermesLog -RedirectStandardError "$hermesLog.err" `
-        -WindowStyle Hidden -Wait
-}
+# ⚠️ Start-Process 传中文 query 必须整体加引号, 否则被 PowerShell 拆成多参数
+$query = ('"' + $prompt + '"')
+Start-Process -FilePath $hermes -ArgumentList @('chat', '-q', $query) `
+    -RedirectStandardOutput $hermesLog -RedirectStandardError "$hermesLog.err" `
+    -WindowStyle Hidden -Wait
 
 Write-Log "Hermes 修复完成,日志: $hermesLog"
 
