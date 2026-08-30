@@ -67,6 +67,24 @@
 }
 ```
 
+### GET /api/history?hours=24 (v2, 2026-08-30 新增)
+```json
+{
+  "ok": true, "hours": 24,
+  "points": [{ "t": "ISO8601", "cpu": 3.0, "memUsed": 1497, "memTotal": 1966, "diskUsed": 17.3, "diskFree": 32.6 }]
+}
+```
+- 服务器采集器每 5 分钟写入 history.json(最多 7 天 2000 点),接口降采样到最多 300 点
+- hours 范围 1-168
+
+### POST /api/logs/:id/trigger (v2, 2026-08-30 新增)
+- 手动触发 Hermes 修复:日志复制回 inbox + 立即运行 auto-fix 计划任务
+- 返回: `{ "ok": true, "message": "...", "id": "..." }` 或 404
+
+### POST /api/logs/:id/ack (v2, 2026-08-30 新增)
+- 标记已处理:inbox/failed 中的日志移到 processed(写入 acked_at/acked_by)
+- 返回: `{ "ok": true, "message": "已标记为处理完成", "id": "..." }` 或 404
+
 ## 3. UI 规格
 - 原生 SwiftUI,iOS 17+,iPhone 竖屏
 - 深色/浅色自适应(用系统默认即可)
