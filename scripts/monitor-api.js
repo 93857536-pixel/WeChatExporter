@@ -17,6 +17,7 @@ const BASE = 'C:\\WeChatExporterDiag';
 const INBOX = path.join(BASE, 'inbox');
 const PROC = path.join(BASE, 'processed');
 const FAIL = path.join(BASE, 'failed');
+const HISTORY = path.join(BASE, 'history.json');
 const TOKEN = process.env.DIAG_TOKEN || 'wxexporter-diag-2026';
 const GIT = 'C:\\tools\\git-portable\\cmd\\git.exe';
 
@@ -194,6 +195,75 @@ const server = http.createServer((req, res) => {
             last_fix_log: path.join(BASE, 'hermes-fix.log'),
             recent_fixes: fixes,
         });
+    }
+
+    // GET /api/history?hours=24 —— 系统状态历史(采集器每5分钟写入 history.json)
+    if (req.method === 'GET' && p === '/api/history') {
+        const hours = Math.min(parseInt(url.searchParams.get('hours') || '24', 10), 168);
+        let arr = [];
+        try { arr = JSON.parse(fs.readFileSync(HISTORY, 'utf8')); } catch { arr = []; }
+        if (!Array.isArray(arr)) arr = [];
+        const cutoff = Date.now() - hours * 3600 * 1000;
+        arr = arr.filter(e => new Date(e.t).getTime() >= cutoff);
+        // 降采样: 最多返回 300 点(小时视图下约 5min/点)
+        if (arr.length > 300) {
+            const step = Math.ceil(arr.length / 300);
+            arr = arr.filter((_, i) => i % step === 0);
+        }
+        return json(res, 200, { ok: true, hours, points: arr });
+    }
+
+    // POST /api/logs/:id/trigger —— 手动触发 Hermes 修复(把日志复制回 inbox 并立即跑 auto-fix)
+    const mTrigger = p.match(/^\/api\/logs\/([^/]+)\/trigger$/);
+    if (req.method === 'POST' && mTrigger) {
+        const id = mTrigger[1];
+        // 找日志(可能在任何目录)
+        let found = null, srcDir = null;
+        for (const [dir, st] of [[INBOX, 'pending'], [PROC, 'resolved'], [FAIL, 'failed']]) {
+            const f = path.join(dir, id + '.json');
+            if (fs.existsSync(f)) { found = f; srcDir = dir; break; }
+        }
+        if (!found) return json(res, 404, { ok: false, error: 'log not found' });
+        try {
+            // 复制回 inbox(auto-fix 会按新文件处理)
+            const target = path.join(INBOX, id + '.json');
+            if (srcDir !== INBOX) {
+                fs.copyFileSync(found, target);
+                fs.unlinkSync(found); // 从原目录移走, 避免重复
+            }
+            // 立即触发 auto-fix(后台, 不等待)
+            spawnSync('powershell', ['-NoProfile', '-Command',
+                `schtasks /Run /TN WeChatExporterAutoFix 2>&1 | Out-Null; Write-Output done`],
+                { encoding: 'utf8', timeout: 20000 });
+            return json(res, 200, { ok: true, message: '修复已触发, 日志已放回 inbox', id });
+        } catch (e) {
+            return json(res, 500, { ok: false, error: 'trigger failed: ' + e.message });
+        }
+    }
+
+    // POST /api/logs/:id/ack —— 标记已处理(移到 processed)
+    const mAck = p.match(/^\/api\/logs\/([^/]+)\/ack$/);
+    if (req.method === 'POST' && mAck) {
+        const id = mAck[1];
+        for (const [dir, st] of [[INBOX, 'pending'], [FAIL, 'failed']]) {
+            const f = path.join(dir, id + '.json');
+            if (fs.existsSync(f)) {
+                try {
+                    // 更新状态标记
+                    const data = JSON.parse(fs.readFileSync(f, 'utf8'));
+                    data.acked_at = new Date().toISOString();
+                    data.acked_by = 'monitor-app';
+                    fs.writeFileSync(f, JSON.stringify(data, null, 2));
+                    // 移到 processed
+                    const target = path.join(PROC, id + '.json');
+                    fs.renameSync(f, target);
+                    return json(res, 200, { ok: true, message: '已标记为处理完成', id });
+                } catch (e) {
+                    return json(res, 500, { ok: false, error: 'ack failed: ' + e.message });
+                }
+            }
+        }
+        return json(res, 404, { ok: false, error: 'log not found in inbox/failed' });
     }
 
     return json(res, 404, { ok: false, error: 'not found' });
