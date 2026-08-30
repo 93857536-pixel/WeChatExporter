@@ -40,5 +40,3 @@ assets/dmg-preview.png
 # Generated icon (built by prepare_icon.sh from AppIcon.png)
 assets/AppIcon.icns
 assets/AppIcon.iconset
-
-# server push test
