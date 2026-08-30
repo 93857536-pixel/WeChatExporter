@@ -78,6 +78,13 @@ schtasks /Create /TN "WeChatExporterAutoFix" /SC MINUTE /MO 5 /RL HIGHEST /TR "p
 - 客户端契约: docs/DIAGNOSTIC_UPLOAD_CONTRACT.md
 - diag-server 持久化: 计划任务 WeChatExporterDiagServer(ONSTART) + WeChatExporterDiagWatchdog(每2分钟检查8082,挂了 WMI 拉起)
 
+## 3.5 服务器监控 API (iOS App 数据源, 2026-08-30 上线)
+- monitor-api.js → 127.0.0.1:8083, CF Tunnel ingress: /api/* → 8083
+- 端点: GET /api/status /api/logs?limit= /api/logs/:id /api/hermes(均需 x-diag-token 头)
+- 数据来源: C:\WeChatExporterDiag\inbox\processed\failed + auto-fix.log/hermes-fix.log + PowerShell 系统状态
+- 持久化: 计划任务 WeChatExporterMonitorApi(ONSTART) + 看门狗 watchdog.ps1 已覆盖 8083
+- iOS App 契约: docs/IOS_MONITOR_CONTRACT.md
+
 ## 4. 验证闭环
 1. 手动放一个假日志到 inbox → 等 5 分钟 → 看 auto-fix.log 是否触发 Hermes
 2. Hermes 修复后 push tag → GitHub Actions 自动发布
