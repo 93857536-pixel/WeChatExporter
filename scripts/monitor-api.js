@@ -295,6 +295,76 @@ const server = http.createServer((req, res) => {
         return json(res, 404, { ok: false, error: 'log not found in inbox/failed' });
     }
 
+    // GET /api/fixes —— 修复进度(fix-status.json) + GitHub Actions CI 状态
+    if (req.method === 'GET' && p === '/api/fixes') {
+        const STATUS_FILE = path.join(BASE, 'fix-status.json');
+        let fixStatus = null;
+        try { fixStatus = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8')); } catch { fixStatus = null; }
+
+        // 查 GitHub Actions 最近一次 workflow 运行状态(公开 repo 无需 token)
+        let ci = null;
+        try {
+            const r = spawnSync('powershell', ['-NoProfile', '-Command',
+                `curl.exe -s -m 15 "https://api.github.com/repos/93857536-pixel/WeChatExporter/actions/runs?per_page=1&page=1"`],
+                { encoding: 'utf8', timeout: 20000 });
+            if (r.status === 0 && r.stdout) {
+                const j = JSON.parse(r.stdout);
+                if (j.workflow_runs && j.workflow_runs.length > 0) {
+                    const run = j.workflow_runs[0];
+                    ci = {
+                        id: run.id,
+                        name: run.name,
+                        status: run.status,          // queued|in_progress|completed
+                        conclusion: run.conclusion,  // success|failure|null
+                        head_sha: run.head_sha ? run.head_sha.slice(0, 7) : null,
+                        created_at: run.created_at,
+                        updated_at: run.updated_at,
+                        html_url: run.html_url,
+                    };
+                }
+            }
+        } catch { ci = null; }
+
+        // 最近修复历史(从 hermes-fix.log 尾部提取)
+        const fixes = getFixProgress();
+        return json(res, 200, {
+            ok: true,
+            current: fixStatus,   // null 表示无进行中/最近修复
+            ci,
+            recent: fixes.slice(0, 20),
+        });
+    }
+
+    // POST /api/service/:name/restart —— 一键重启服务(白名单: diag-server/monitor-api/cloudflared/nginx)
+    const mRestart = p.match(/^\/api\/service\/([^/]+)\/restart$/);
+    if (req.method === 'POST' && mRestart) {
+        const name = mRestart[1];
+        const whitelist = {
+            'diag-server': { task: 'WeChatExporterDiagServer' },
+            'monitor-api': { task: 'WeChatExporterMonitorApi' },
+            'cloudflared': { service: 'Cloudflared' },
+            'nginx': { service: 'nginx' },
+        };
+        const target = whitelist[name];
+        if (!target) return json(res, 404, { ok: false, error: 'unknown service: ' + name });
+        try {
+            if (target.task) {
+                // 计划任务方式: 杀监听进程, 看门狗自动拉起
+                const port = name === 'diag-server' ? 8082 : 8083;
+                spawnSync('powershell', ['-NoProfile', '-Command',
+                    `$p = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object LocalPort -eq ${port} | Select-Object -First 1; if ($p) { Stop-Process -Id $p.OwningProcess -Force }; Start-Sleep -Seconds 1; schtasks /Run /TN ${target.task} 2>&1 | Out-Null; Write-Output done`],
+                    { encoding: 'utf8', timeout: 30000 });
+            } else {
+                spawnSync('powershell', ['-NoProfile', '-Command',
+                    `Restart-Service -Name '${target.service}' -Force -ErrorAction Stop; Write-Output done`],
+                    { encoding: 'utf8', timeout: 30000 });
+            }
+            return json(res, 200, { ok: true, message: name + ' 重启指令已发送', service: name });
+        } catch (e) {
+            return json(res, 500, { ok: false, error: 'restart failed: ' + e.message });
+        }
+    }
+
     return json(res, 404, { ok: false, error: 'not found' });
 });
 

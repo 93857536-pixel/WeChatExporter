@@ -57,6 +57,20 @@ Set-Content -Path $MarkFile -Value $dedupKey -Encoding UTF8
 
 Write-Log "调用 Hermes agent 修复…"
 
+# 写入 fix-status.json(修复进度状态, iOS App 展示)
+$StatusFile = 'C:\WeChatExporterDiag\fix-status.json'
+function Write-FixStatus($st, $extra = @{}) {
+    $status = @{
+        log_ids   = @($newFiles | ForEach-Object { $_.BaseName })
+        status    = $st
+        started_at = (Get-Date).ToString('o')
+        updated_at = (Get-Date).ToString('o')
+    }
+    foreach ($k in $extra.Keys) { $status[$k] = $extra[$k] }
+    $status | ConvertTo-Json | Set-Content -Path $StatusFile -Encoding UTF8
+}
+Write-FixStatus 'processing'
+
 # 调用服务器 Hermes(Windows 原生安装, venv 内 hermes.exe)
 $hermes = 'C:\Users\Administrator\.hermes-agent-venv\Scripts\hermes.exe'
 if (-not (Test-Path $hermes)) {
@@ -104,6 +118,23 @@ Start-Process -FilePath $hermes -ArgumentList @('chat', '-q', $query, '-t', 'ter
     -WindowStyle Hidden -Wait
 
 Write-Log "Hermes 修复完成,日志: $hermesLog"
+
+# 更新 fix-status.json 为 completed(附 hermes-fix.log 尾部作为摘要)
+$fixTail = ''
+if (Test-Path $hermesLog) {
+    $fixTail = (Get-Content $hermesLog -Tail 20 -Encoding UTF8 -ErrorAction SilentlyContinue) -join "`n"
+    if ($fixTail.Length -gt 3000) { $fixTail = $fixTail.Substring($fixTail.Length - 3000) }
+}
+$errTail = ''
+if (Test-Path "$hermesLog.err") {
+    $errTail = (Get-Content "$hermesLog.err" -Tail 5 -Encoding UTF8 -ErrorAction SilentlyContinue) -join "`n"
+}
+Write-FixStatus 'completed' @{ summary = $fixTail; stderr_tail = $errTail; finished_at = (Get-Date).ToString('o') }
+
+# 推送通知(Server酱/Bark, 未配置 key 时静默跳过)
+$notifyTitle = "WeChatExporter 自动修复完成"
+$notifyBody = "已处理 $($newFiles.Count) 个诊断日志。`n$($fixTail.Substring(0, [Math]::Min(300, $fixTail.Length)))"
+Start-Process -FilePath 'C:\tools\node\node.exe' -ArgumentList @('C:\WeChatExporterDiag\notify.js', "`"$notifyTitle`"", "`"$notifyBody`"") -WindowStyle Hidden
 
 # 处理完的日志移走
 foreach ($f in $newFiles) {
