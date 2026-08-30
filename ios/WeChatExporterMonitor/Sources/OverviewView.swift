@@ -18,7 +18,6 @@ struct OverviewView: View {
                 }
             }
             .navigationTitle("概览")
-            .refreshable { await store.loadAll() }
             .task { await store.autoRefreshStatus() }
         }
     }
@@ -105,6 +104,7 @@ struct OverviewView: View {
             }
             .padding(.vertical)
         }
+        .refreshable { await store.loadAll() }
     }
 
     // MARK: - 历史趋势
