@@ -5,6 +5,8 @@ All notable changes to this project are documented in this file.
 ## [2.14.0] - 2026-08-30
 
 ### Added
+- **iOS 监控 App「WeChatExporter Monitor」(ios/WeChatExporterMonitor/)**：原生 SwiftUI，4 个 Tab（概览/报错日志/修复进度/Hermes），通过 https://linminhao.top/api/* 实时查看服务器运行状态（CPU/内存/磁盘/6 服务指示灯）、诊断日志处理进度、Hermes 修复活动与配置
+- **服务器监控 API（scripts/monitor-api.js → 127.0.0.1:8083）**：GET /api/status /api/logs /api/logs/:id /api/hermes，经 CF Tunnel /api/* 公网可达，x-diag-token 鉴权；计划任务自启 + 看门狗覆盖
 - **诊断日志自动上传（双平台）**：首次启动弹「诊断日志上传」条款窗，用户明确同意后，导出/准备数据/加载会话报错时自动静默上传技术诊断信息（应用版本、操作系统版本、错误消息、运行日志尾部）到开发者服务器，用于自动分析并修复问题
   - 不同意则任何情况下都不上传任何数据，应用功能完全不受影响；设置里可随时更改
   - 上传内容仅含技术诊断数据，不包含聊天内容、联系人信息、账号信息或任何个人隐私数据
