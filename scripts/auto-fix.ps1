@@ -95,8 +95,11 @@ $reportBody
 # 后台运行 Hermes 修复(可能耗时 10-30 分钟),写日志文件
 $hermesLog = 'C:\WeChatExporterDiag\hermes-fix.log'
 # ⚠️ Start-Process 传中文 query 必须整体加引号, 否则被 PowerShell 拆成多参数
+# ⚠️ 必须显式 -t terminal,file —— 不传则 Hermes 无 terminal 工具,
+#    无法改代码/编译/push(上次 e2e 实测 Hermes 自报"没有 terminal 工具")
+#    github 操作经 terminal 的 gh/git CLI 完成, 无独立 github 工具集
 $query = ('"' + $prompt + '"')
-Start-Process -FilePath $hermes -ArgumentList @('chat', '-q', $query) `
+Start-Process -FilePath $hermes -ArgumentList @('chat', '-q', $query, '-t', 'terminal,file,web,delegation,skills') `
     -RedirectStandardOutput $hermesLog -RedirectStandardError "$hermesLog.err" `
     -WindowStyle Hidden -Wait
 
