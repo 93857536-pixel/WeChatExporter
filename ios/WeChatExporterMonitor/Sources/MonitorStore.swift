@@ -1,26 +1,30 @@
 import Foundation
 import SwiftUI
 
-/// 集中管理三个数据源: status / logs / hermes。
+/// 集中管理数据源: status / logs / hermes / history。
 @MainActor
 final class MonitorStore: ObservableObject {
     @Published var status: StatusResponse?
     @Published var logs: [DiagnosticLog] = []
     @Published var hermes: HermesResponse?
+    @Published var history: [HistoryPoint] = []
 
     @Published var statusLoading = false
     @Published var logsLoading = false
     @Published var hermesLoading = false
+    @Published var historyLoading = false
 
     @Published var statusError: String?
     @Published var logsError: String?
     @Published var hermesError: String?
+    @Published var historyError: String?
 
     func loadAll() async {
         async let s: Void = loadStatus()
         async let l: Void = loadLogs()
         async let h: Void = loadHermes()
-        _ = await (s, l, h)
+        async let y: Void = loadHistory()
+        _ = await (s, l, h, y)
     }
 
     func loadStatus() async {
@@ -57,9 +61,43 @@ final class MonitorStore: ObservableObject {
         }
     }
 
+    func loadHistory() async {
+        historyLoading = true
+        historyError = nil
+        defer { historyLoading = false }
+        do {
+            let resp: HistoryResponse = try await APIClient.get("/api/history?hours=24")
+            history = resp.points
+        } catch {
+            historyError = (error as? APIError)?.errorDescription ?? "无法连接服务器"
+        }
+    }
+
     func fetchLogDetail(id: String) async throws -> DiagnosticLog {
         let resp: LogDetailResponse = try await APIClient.get("/api/logs/\(id)")
         return resp.data
+    }
+
+    /// 手动触发修复（POST /api/logs/:id/trigger）。成功返回 true。
+    @discardableResult
+    func triggerFix(id: String) async -> Bool {
+        await performAction("/api/logs/\(id)/trigger")
+    }
+
+    /// 标记已处理（POST /api/logs/:id/ack）。成功返回 true。
+    @discardableResult
+    func ackLog(id: String) async -> Bool {
+        await performAction("/api/logs/\(id)/ack")
+    }
+
+    private func performAction(_ path: String) async -> Bool {
+        do {
+            let data = try await APIClient.post(path)
+            let resp = try JSONDecoder().decode(ActionResponse.self, from: data)
+            return resp.ok
+        } catch {
+            return false
+        }
     }
 
     /// 概览页 30s 定时刷新。

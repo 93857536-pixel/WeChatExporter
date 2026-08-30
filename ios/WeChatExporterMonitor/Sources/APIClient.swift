@@ -55,4 +55,33 @@ enum APIClient {
             throw APIError.decoding(error.localizedDescription)
         }
     }
+
+    /// 泛型 POST 请求（无 body），自动附带 x-diag-token 鉴权头，超时 10s。返回响应体原始 data。
+    @discardableResult
+    static func post(_ path: String) async throws -> Data {
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw APIError.badURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(token, forHTTPHeaderField: "x-diag-token")
+        request.timeoutInterval = 10
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw APIError.serverUnreachable
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.http(http.statusCode)
+        }
+        return data
+    }
 }

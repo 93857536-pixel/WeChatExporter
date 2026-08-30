@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 struct OverviewView: View {
     @EnvironmentObject private var store: MonitorStore
@@ -93,8 +94,87 @@ struct OverviewView: View {
                     }
                     .padding(.horizontal)
                 }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("历史趋势(24h)")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    historyContent
+                        .padding(.horizontal)
+                }
             }
             .padding(.vertical)
         }
     }
+
+    // MARK: - 历史趋势
+
+    @ViewBuilder
+    private var historyContent: some View {
+        if store.historyLoading && store.history.isEmpty {
+            HStack {
+                Spacer()
+                ProgressView()
+                Spacer()
+            }
+            .frame(height: 180)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        } else if store.history.isEmpty || trendData.isEmpty {
+            VStack(spacing: 6) {
+                Image(systemName: "chart.xyaxis.line")
+                    .font(.title2)
+                    .foregroundColor(.secondary)
+                Text("暂无历史数据")
+                    .font(.subheadline)
+                Text("采集器每5分钟记录一次")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 180)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        } else {
+            historyChart
+        }
+    }
+
+    private var historyChart: some View {
+        Chart(trendData) { point in
+            LineMark(
+                x: .value("时间", point.date),
+                y: .value("值", point.value)
+            )
+            .foregroundStyle(by: .value("指标", point.series))
+        }
+        .chartLegend(.visible)
+        .chartYAxis {
+            AxisMarks(position: .leading)
+        }
+        .padding(12)
+        .frame(height: 180)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// 把 history 点按系列拆成三组（CPU % / 内存 MB / 磁盘 GB），供 Swift Charts 画三条线。
+    private var trendData: [TrendPoint] {
+        var points: [TrendPoint] = []
+        for p in store.history {
+            guard let date = p.date else { continue }
+            points.append(TrendPoint(series: "CPU %", date: date, value: p.cpu))
+            points.append(TrendPoint(series: "内存 MB", date: date, value: Double(p.memUsed)))
+            points.append(TrendPoint(series: "磁盘 GB", date: date, value: p.diskUsed))
+        }
+        return points
+    }
+}
+
+/// 图表用的数据点（按系列拆分）。
+private struct TrendPoint: Identifiable {
+    let id = UUID()
+    let series: String
+    let date: Date
+    let value: Double
 }

@@ -127,3 +127,33 @@ struct FixRecord: Codable, Identifiable {
 
     var id: String { source + time + text }
 }
+
+// MARK: - /api/history (v2)
+
+struct HistoryResponse: Codable {
+    let ok: Bool
+    let hours: Int
+    let points: [HistoryPoint]
+}
+
+struct HistoryPoint: Codable, Identifiable {
+    let t: String
+    let cpu: Double
+    let memUsed: Int
+    let memTotal: Int
+    let diskUsed: Double
+    let diskFree: Double
+
+    var id: String { t }
+
+    /// ISO8601 时间戳解析（供图表 x 轴使用）。
+    var date: Date? { DateFormat.parse(t) }
+}
+
+// MARK: - POST 操作响应 (trigger / ack)
+
+struct ActionResponse: Codable {
+    let ok: Bool
+    let message: String?
+    let id: String?
+}

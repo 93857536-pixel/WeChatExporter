@@ -3,16 +3,22 @@ import SwiftUI
 // MARK: - 日期格式化
 
 enum DateFormat {
-    static func friendly(_ iso: String) -> String {
-        guard !iso.isEmpty else { return "—" }
+    static func parse(_ iso: String) -> Date? {
+        guard !iso.isEmpty else { return nil }
         let withFraction = ISO8601DateFormatter()
         withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = withFraction.date(from: iso) { return friendly(d) }
+        if let d = withFraction.date(from: iso) { return d }
 
         let basic = ISO8601DateFormatter()
         basic.formatOptions = [.withInternetDateTime]
-        if let d = basic.date(from: iso) { return friendly(d) }
-        return iso
+        if let d = basic.date(from: iso) { return d }
+        return nil
+    }
+
+    static func friendly(_ iso: String) -> String {
+        guard !iso.isEmpty else { return "—" }
+        guard let d = parse(iso) else { return iso }
+        return friendly(d)
     }
 
     static func friendly(_ date: Date) -> String {
@@ -192,5 +198,38 @@ struct ErrorStateView: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - 日志分享/复制文本
+
+extension DiagnosticLog {
+    /// 用于分享的完整日志文本。
+    var shareText: String {
+        """
+        [WeChatExporter 诊断日志]
+        时间: \(DateFormat.friendly(receivedAt))
+        应用: \(app)  平台: \(platform)  版本: \(version) (build \(build))
+        系统: \(osName)  阶段: \(stage)
+        状态: \(LogStatus.label(status))
+        错误摘要: \(error)
+
+        —— 完整错误 (error_full) ——
+        \(errorFull)
+
+        —— 日志尾部 (logs_tail) ——
+        \(logsTail)
+        """
+    }
+
+    /// 复制到剪贴板的内容：完整错误 + 日志尾部。
+    var clipboardText: String {
+        """
+        [完整错误 error_full]
+        \(errorFull)
+
+        [日志尾部 logs_tail]
+        \(logsTail)
+        """
     }
 }
