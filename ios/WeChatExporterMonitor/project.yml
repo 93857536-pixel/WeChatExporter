@@ -27,8 +27,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.linminhao.WeChatExporterMonitor
         SWIFT_VERSION: "5.9"
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "4B7F8BR8R4"
         TARGETED_DEVICE_FAMILY: "1"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
