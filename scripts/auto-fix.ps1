@@ -1,4 +1,4 @@
-# WeChatExporter 服务器端自动修复闭环 (Windows Server 2025 计划任务入口)
+﻿# WeChatExporter 服务器端自动修复闭环 (Windows Server 2025 计划任务入口)
 # 部署: C:\WeChatExporterDiag\auto-fix.ps1
 # 计划任务: 每 5 分钟运行一次
 # 流程:
