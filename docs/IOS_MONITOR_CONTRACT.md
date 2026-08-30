@@ -85,6 +85,20 @@
 - 标记已处理:inbox/failed 中的日志移到 processed(写入 acked_at/acked_by)
 - 返回: `{ "ok": true, "message": "已标记为处理完成", "id": "..." }` 或 404
 
+### GET /api/fixes (v3, 2026-08-30 新增)
+```json
+{
+  "ok": true,
+  "current": { "log_ids": ["..."], "status": "processing|completed", "started_at": "...", "updated_at": "...", "summary": "hermes-fix.log 尾部", "finished_at": "..." } | null,
+  "ci": { "id": 123, "name": "CI", "status": "completed", "conclusion": "success", "head_sha": "d696603", "created_at": "...", "html_url": "..." } | null,
+  "recent": [{ "source": "auto-fix", "time": "...", "text": "..." }]
+}
+```
+
+### POST /api/service/:name/restart (v3, 2026-08-30 新增)
+- 一键重启服务,白名单: diag-server / monitor-api / cloudflared / nginx
+- 返回: `{ "ok": true, "message": "...", "service": "..." }` 或 404(unknown service)
+
 ## 3. UI 规格
 - 原生 SwiftUI,iOS 17+,iPhone 竖屏
 - 深色/浅色自适应(用系统默认即可)
