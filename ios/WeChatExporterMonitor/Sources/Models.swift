@@ -43,6 +43,14 @@ struct ServicesStatus: Codable {
         "diagServer", "monitorApi", "node3000", "nginx", "cloudflared", "hermes",
     ]
 
+    /// 可一键重启的服务: 状态键 → 重启 API 名称（白名单）。node3000/hermes 不支持重启。
+    static let restartNames: [String: String] = [
+        "diagServer": "diag-server",
+        "monitorApi": "monitor-api",
+        "nginx": "nginx",
+        "cloudflared": "cloudflared",
+    ]
+
     func value(for key: String) -> Bool {
         switch key {
         case "diagServer": return diagServer
@@ -150,7 +158,50 @@ struct HistoryPoint: Codable, Identifiable {
     var date: Date? { DateFormat.parse(t) }
 }
 
-// MARK: - POST 操作响应 (trigger / ack)
+// MARK: - /api/fixes (v3)
+
+struct FixesResponse: Codable {
+    let ok: Bool
+    let current: FixStatus?
+    let ci: CIInfo?
+    let recent: [FixRecord]
+}
+
+struct FixStatus: Codable {
+    let logIds: [String]
+    let status: String
+    let startedAt: String
+    let updatedAt: String
+    let summary: String?
+    let finishedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status, summary
+        case logIds = "log_ids"
+        case startedAt = "started_at"
+        case updatedAt = "updated_at"
+        case finishedAt = "finished_at"
+    }
+}
+
+struct CIInfo: Codable, Identifiable {
+    let id: Int
+    let name: String
+    let status: String
+    let conclusion: String?
+    let headSha: String?
+    let createdAt: String?
+    let htmlUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, conclusion
+        case headSha = "head_sha"
+        case createdAt = "created_at"
+        case htmlUrl = "html_url"
+    }
+}
+
+// MARK: - POST 操作响应 (trigger / ack / restart)
 
 struct ActionResponse: Codable {
     let ok: Bool

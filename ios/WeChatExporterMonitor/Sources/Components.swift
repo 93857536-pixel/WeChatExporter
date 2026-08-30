@@ -71,6 +71,8 @@ struct StatusBadge: View {
 struct ServiceRow: View {
     let name: String
     let running: Bool
+    /// 非 nil 时显示 trailing 重启按钮。
+    var onRestart: (() -> Void)? = nil
 
     var body: some View {
         HStack {
@@ -83,6 +85,17 @@ struct ServiceRow: View {
             Text(running ? "运行中" : "已停止")
                 .font(.caption)
                 .foregroundColor(.secondary)
+            if onRestart != nil {
+                Button {
+                    onRestart?()
+                } label: {
+                    Image(systemName: "arrow.clockwise.circle")
+                        .font(.body)
+                        .foregroundColor(.blue)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("重启 \(name)")
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 11)

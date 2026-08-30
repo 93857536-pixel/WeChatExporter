@@ -8,23 +8,27 @@ final class MonitorStore: ObservableObject {
     @Published var logs: [DiagnosticLog] = []
     @Published var hermes: HermesResponse?
     @Published var history: [HistoryPoint] = []
+    @Published var fixes: FixesResponse?
 
     @Published var statusLoading = false
     @Published var logsLoading = false
     @Published var hermesLoading = false
     @Published var historyLoading = false
+    @Published var fixesLoading = false
 
     @Published var statusError: String?
     @Published var logsError: String?
     @Published var hermesError: String?
     @Published var historyError: String?
+    @Published var fixesError: String?
 
     func loadAll() async {
         async let s: Void = loadStatus()
         async let l: Void = loadLogs()
         async let h: Void = loadHermes()
         async let y: Void = loadHistory()
-        _ = await (s, l, h, y)
+        async let f: Void = loadFixes()
+        _ = await (s, l, h, y, f)
     }
 
     func loadStatus() async {
@@ -61,15 +65,26 @@ final class MonitorStore: ObservableObject {
         }
     }
 
-    func loadHistory() async {
+    func loadHistory(hours: Int = 24) async {
         historyLoading = true
         historyError = nil
         defer { historyLoading = false }
         do {
-            let resp: HistoryResponse = try await APIClient.get("/api/history?hours=24")
+            let resp: HistoryResponse = try await APIClient.get("/api/history?hours=\(hours)")
             history = resp.points
         } catch {
             historyError = (error as? APIError)?.errorDescription ?? "无法连接服务器"
+        }
+    }
+
+    func loadFixes() async {
+        fixesLoading = true
+        fixesError = nil
+        defer { fixesLoading = false }
+        do {
+            fixes = try await APIClient.get("/api/fixes")
+        } catch {
+            fixesError = (error as? APIError)?.errorDescription ?? "无法连接服务器"
         }
     }
 
@@ -88,6 +103,12 @@ final class MonitorStore: ObservableObject {
     @discardableResult
     func ackLog(id: String) async -> Bool {
         await performAction("/api/logs/\(id)/ack")
+    }
+
+    /// 一键重启服务（POST /api/service/:name/restart）。name 为白名单名称(diag-server/monitor-api/cloudflared/nginx)。
+    @discardableResult
+    func restartService(name: String) async -> Bool {
+        await performAction("/api/service/\(name)/restart")
     }
 
     private func performAction(_ path: String) async -> Bool {
