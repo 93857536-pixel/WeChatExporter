@@ -104,7 +104,12 @@ struct OverviewView: View {
             }
             .padding(.vertical)
         }
-        .refreshable { await store.loadAll() }
+        .refreshable {
+            // 非阻塞刷新: 闭包立即返回(指示器快速消失), 数据在后台 Task 中并行加载。
+            // 服务器经 CF Tunnel 公网延迟 3-10s, 若 await 完整 loadAll 下拉指示器会一直转,
+            // 用户感知为"卡着不更新"。改为后台加载, UI 用旧数据先行 + @Published 自动刷新。
+            _ = Task { await store.loadAll() }
+        }
     }
 
     // MARK: - 历史趋势

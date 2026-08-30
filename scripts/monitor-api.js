@@ -21,6 +21,35 @@ const HISTORY = path.join(BASE, 'history.json');
 const TOKEN = process.env.DIAG_TOKEN || 'wxexporter-diag-2026';
 const GIT = 'C:\\tools\\git-portable\\cmd\\git.exe';
 
+// ---- 系统状态缓存 (PowerShell 查询慢, 10 秒缓存避免每次请求都等 8s) ----
+let systemCache = null;
+let systemCacheAt = 0;
+const SYSTEM_CACHE_TTL = 10000; // 10s
+
+function getSystemStatusCached() {
+    const now = Date.now();
+    if (systemCache && now - systemCacheAt < SYSTEM_CACHE_TTL) {
+        return systemCache;
+    }
+    systemCache = getSystemStatus();
+    systemCacheAt = now;
+    return systemCache;
+}
+
+// ---- 服务状态缓存 (同样慢, 与系统状态同 TTL) ----
+let servicesCache = null;
+let servicesCacheAt = 0;
+
+function getServicesCached() {
+    const now = Date.now();
+    if (servicesCache && now - servicesCacheAt < SYSTEM_CACHE_TTL) {
+        return servicesCache;
+    }
+    servicesCache = getServices();
+    servicesCacheAt = now;
+    return servicesCache;
+}
+
 const pad = (n) => String(n).padStart(2, '0');
 function fmt(ts) {
     const d = new Date(ts);
@@ -148,8 +177,8 @@ const server = http.createServer((req, res) => {
         return json(res, 200, {
             ok: true,
             fetched_at: new Date().toISOString(),
-            system: getSystemStatus(),
-            services: getServices(),
+            system: getSystemStatusCached(),
+            services: getServicesCached(),
             counts: {
                 inbox: readLogFiles(INBOX, 'pending').length,
                 processing: 0,
