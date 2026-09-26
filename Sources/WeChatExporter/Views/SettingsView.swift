@@ -332,6 +332,34 @@ private struct ExportSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // wx-cli 设置（用户自带）
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "terminal")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("wx-cli 设置")
+                            .font(.headline)
+                    }
+
+                    HStack(spacing: 8) {
+                        TextField("wx-cli 路径（默认自动搜索：内置 → ~/.local/bin → Homebrew）",
+                                  text: Binding(
+                                    get: { model.customWxCliPath },
+                                    set: { model.setCustomWxCliPath($0) }
+                                  ))
+                        .textFieldStyle(.roundedBorder)
+                        .font(AppTheme.monoFontSm)
+                    }
+
+                    Text("留空则使用内置 wx-cli（安装即用）。填写自定义绝对路径可优先使用你自己构建的 wx-cli（含上游新版本或自行编译的 fork），路径不可执行时自动回退到内置版本。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // 诊断日志上传
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {

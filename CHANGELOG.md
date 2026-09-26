@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.15.0] - 2026-09-26
+
+### Added
+- **语音转文字（双平台，本地离线）**：导出媒体时自动转写语音消息，结果保存为 `.transcript.txt` 侧车并在单文件 HTML 中折叠展示
+  - 自研 SILK 解码器（`vendor/tools/silk/silk2wav`，macOS universal + Windows exe）随安装包内置，`.silk` 语音先转 WAV 再转写
+  - macOS 与 Windows 均调用 whisper.cpp（`whisper-cli`）本地转写，全程离线；缺少 whisper.cpp / 模型时自动跳过，不影响导出
+  - 设置页「语音转文字」开关（默认开）；Windows 设置页提供「下载 whisper 模型」一键按钮
+- **图片 OCR（双平台，本地离线）**：导出媒体时对图片做本地离线文字识别，结果保存为 `.ocr.txt` 侧车并在 HTML 中折叠展示
+  - macOS 用系统 Vision 框架（zh-Hans / zh-Hant / en-US，离线）；Windows 用系统 Media OCR（Win10/11 内置）
+  - 设置页「图片 OCR」开关（默认开）
+- **聊天统计报告（双平台）**：导出时本地聚合 `chat.json` 生成单文件 HTML 统计报告（消息总量、发言排行、24 小时活跃分布、月度趋势、媒体构成），无外部依赖，可离线打开；设置页「统计报告」开关（默认开）
+- **增量导出（双平台，默认关）**：按「联系人 + 导出目录」记忆时间戳游标，开启后每次导出只保留上次之后的新增消息；无新增的会话自动跳过并提示；游标存于应用数据目录，更换导出目录保留各自独立记录
+- **目录导航页 + 全文检索（双平台）**：导出后在导出目录生成 `index.html`，含文件列表导航 + 关键词全文检索框（内嵌文本数据，单文件 200KB 截断，可离线打开）；设置页「目录导航页」开关（默认开）
+- **用户自带 wx-cli（回应 #30）**：设置页新增「wx-cli 设置」，可填写自定义 wx-cli 绝对路径（含自行编译的上游新版或 fork）；留空则用内置版，路径不可执行时自动回退内置。macOS 侧生效；Windows 内置 wx.exe 仍随包分发
+- README 功能清单 / 兼容矩阵 / 发版前微信版本验证流程更新
+
+### Notes
+- 语音转写与图片 OCR 为「可选增强」：关闭或工具缺失时全部导出功能不受影响
+- 双端编译验证：macOS `swift build` 0 错 + Windows `dotnet build -p:EnableWindowsTargeting=true` 0 警告 0 错；统计 / 增量 / 索引逻辑经独立 smoke test 全过
+
 ## [2.14.0] - 2026-08-30
 
 ### Added

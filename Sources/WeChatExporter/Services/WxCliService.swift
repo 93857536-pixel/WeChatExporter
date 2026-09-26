@@ -30,6 +30,15 @@ final class WxCliService {
     }
 
     static func locateExecutable() -> URL? {
+        // 用户自带 wx-cli（设置页填写的绝对路径）优先级最高
+        let custom = ExportModePreferences.customWxCliPath.trimmingCharacters(in: .whitespaces)
+        if !custom.isEmpty {
+            let expanded = custom.hasPrefix("~")
+                ? NSString(string: custom).expandingTildeInPath
+                : custom
+            let url = URL(fileURLWithPath: expanded)
+            if FileManager.default.isExecutableFile(atPath: url.path) { return url }
+        }
         if let bundled = bundledExecutable() { return bundled }
 
         let home = FileManager.default.homeDirectoryForCurrentUser

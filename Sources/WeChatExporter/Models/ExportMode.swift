@@ -48,6 +48,7 @@ enum ExportModePreferences {
         static let statsReport = "export.statsReport"
         static let incremental = "export.incremental"
         static let indexPage = "export.indexPage"
+        static let customWxCliPath = "export.customWxCliPath"
     }
 
     static var mode: ExportMode {
@@ -101,6 +102,17 @@ enum ExportModePreferences {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Keys.incremental)
+        }
+    }
+
+    /// 自定义 wx-cli 路径（设置面板填写，默认空=自动搜索内置/用户目录/Homebrew）。
+    /// 用户可用自己构建的 wx-cli（含上游新版或自有 fork）覆盖默认行为。
+    static var customWxCliPath: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.customWxCliPath) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.customWxCliPath)
         }
     }
 

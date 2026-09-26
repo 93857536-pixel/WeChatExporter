@@ -723,6 +723,14 @@ final class AppViewModel: ObservableObject {
         ExportModePreferences.indexPageEnabled = value
     }
 
+    /// 用户自带 wx-cli 路径（设置面板绑定，默认空=自动搜索）
+    @Published var customWxCliPath: String = ExportModePreferences.customWxCliPath
+
+    func setCustomWxCliPath(_ value: String) {
+        customWxCliPath = value
+        ExportModePreferences.customWxCliPath = value
+    }
+
     /// 记录用户对诊断上传条款的选择（条款弹窗按钮调用）
     func setDiagnosticsConsent(_ consented: Bool) {
         DiagnosticUploader.setConsented(consented)
