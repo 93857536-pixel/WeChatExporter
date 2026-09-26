@@ -12,28 +12,52 @@ APP_BUILD="${APP_BUILD:-31}"
 
 echo "编译原生 macOS 应用（universal: x86_64 + arm64）…"
 cd "$ROOT"
-swift build -c release --arch x86_64 --arch arm64
 
-BINARY="$ROOT/.build/release/WeChatExporter"
-if [[ ! -x "$BINARY" && -x "$ROOT/.build/out/Products/Release/$APP_NAME" ]]; then
-  BINARY="$ROOT/.build/out/Products/Release/$APP_NAME"
+# 双架构分别构建（独立 scratch 目录避免覆盖），再 lipo 合成 universal。
+# 旧版 SwiftPM(Xcode 15.4/CI) 单命令多 --arch 的产物路径不可靠，分次构建对新老工具链都稳定。
+UNIVERSAL_BIN="$ROOT/.build/universal/WeChatExporter"
+mkdir -p "$UNIVERSAL_BIN" && rm -f "$UNIVERSAL_BIN"
+SLICES=()
+for ARCH in x86_64 arm64; do
+  echo "  → 构建 $ARCH 切片…"
+  swift build -c release --arch "$ARCH" --scratch-path "$ROOT/.build/scratch-$ARCH"
+  CAND=""
+  for C in "$ROOT/.build/scratch-$ARCH/release/WeChatExporter" \
+           "$ROOT/.build/scratch-$ARCH/out/Products/Release/$APP_NAME" \
+           "$ROOT/.build/release/WeChatExporter"; do
+    [[ -x "$C" ]] && CAND="$C" && break
+  done
+  if [[ -z "$CAND" ]]; then
+    echo "警告：$ARCH 切片构建产物未找到，跳过该架构" >&2
+    continue
+  fi
+  SLICES+=("$CAND")
+done
+
+if [[ ${#SLICES[@]} -eq 2 ]]; then
+  lipo -create "${SLICES[@]}" -output "$UNIVERSAL_BIN"
+  BINARY="$UNIVERSAL_BIN"
+elif [[ ${#SLICES[@]} -eq 1 ]]; then
+  echo "警告：仅单架构（${SLICES[0]}），另一架构交叉编译失败，继续构建" >&2
+  BINARY="${SLICES[0]}"
+else
+  echo "错误：双架构构建均失败" >&2
+  exit 1
 fi
 
-# 校验 universal 双架构；若环境无法交叉编译出第二架构则降级为单架构并告警
+# 校验产物
 ARCHS="$(lipo -archs "$BINARY" 2>/dev/null || echo '')"
-case " $ARCHS " in
-  *" x86_64 "* | *" arm64 "*)
-    if [[ " $ARCHS " == *" x86_64 "* && " $ARCHS " == *" arm64 " ]]; then
-      echo "双架构校验通过：$ARCHS"
-    else
-      echo "警告：仅单架构（$ARCHS），另一架构交叉编译失败，继续构建"
-    fi
-    ;;
-  *)
-    echo "错误：lipo 无法解析 $BINARY 的架构（'$ARCHS'）" >&2
-    exit 1
-    ;;
-esac
+if [[ -z "$ARCHS" ]]; then
+  echo "错误：lipo 无法解析 $BINARY 的架构" >&2
+  exit 1
+fi
+if [[ " $ARCHS " == *" x86_64 "* && " $ARCHS " == *" arm64 "* ]]; then
+  echo "双架构校验通过：$ARCHS"
+else
+  echo "警告：产物仅单架构（$ARCHS）"
+fi
+
+rm -rf "$ROOT/.build/scratch-x86_64" "$ROOT/.build/scratch-arm64" "$ROOT/.build/universal"
 
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/$APP_NAME"
