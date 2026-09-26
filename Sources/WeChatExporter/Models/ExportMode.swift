@@ -46,6 +46,8 @@ enum ExportModePreferences {
         static let voiceTranscription = "export.voiceTranscription"
         static let imageOCR = "export.imageOCR"
         static let statsReport = "export.statsReport"
+        static let incremental = "export.incremental"
+        static let indexPage = "export.indexPage"
     }
 
     static var mode: ExportMode {
@@ -88,6 +90,28 @@ enum ExportModePreferences {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Keys.statsReport)
+        }
+    }
+
+    /// 导出是否只保留新增消息（增量导出，默认关闭）
+    static var incrementalExportEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.incremental) as? Bool
+            return v ?? false
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.incremental)
+        }
+    }
+
+    /// 导出后是否生成目录导航页 index.html（含全文检索框，默认开启）
+    static var indexPageEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.indexPage) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.indexPage)
         }
     }
 }

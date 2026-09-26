@@ -319,7 +319,7 @@ final class AppViewModel: ObservableObject {
                         .appendingPathComponent("WeChatExporter-\(UUID().uuidString)", isDirectory: true)
                     defer { try? FileManager.default.removeItem(at: tempDir) }
 
-                    let count = try await wxCli.export(
+                    var count = try await wxCli.export(
                         contact: contact,
                         outputDir: tempDir,
                         includeMedia: mode.includesMedia,
@@ -333,6 +333,29 @@ final class AppViewModel: ObservableObject {
                     // 图片 OCR（本地离线 Vision 框架）
                     if mode.includesMedia && imageOCREnabled {
                         await ImageOCRService.ocrAll(in: tempDir, log: logHandler())
+                    }
+
+                    // 增量导出：过滤为只保留上次游标之后的新增消息
+                    if incrementalExportEnabled {
+                        let exportDirPath = base.path
+                        let lastTs = IncrementalExport.loadCursor(contactID: contact.id, exportDir: exportDirPath)
+                        if let lastTs {
+                            count = IncrementalExport.filterArtifacts(in: tempDir, contactID: contact.id, after: lastTs, log: logHandler())
+                            if count == 0 {
+                                summary.append("• \(contact.displayName)：无新增消息，已跳过")
+                                continue
+                            }
+                            let maxTs = IncrementalExport.maxTimestamp(in: tempDir)
+                            if maxTs > lastTs {
+                                IncrementalExport.saveCursor(contactID: contact.id, exportDir: exportDirPath, lastTimestamp: maxTs)
+                            }
+                        } else {
+                            IncrementalExport.saveCursor(
+                                contactID: contact.id,
+                                exportDir: exportDirPath,
+                                lastTimestamp: IncrementalExport.maxTimestamp(in: tempDir)
+                            )
+                        }
                     }
 
                     switch mode {
@@ -401,17 +424,45 @@ final class AppViewModel: ObservableObject {
                     defer { try? FileManager.default.removeItem(at: tempDir) }
 
                     appendLog("导出：\(contact.displayName)")
-                    let count = try ChatExporter.export(
+                    var count = try ChatExporter.export(
                         contact: contact,
                         decryptedDir: paths.decryptedDir,
                         outputDir: tempDir
                     )
+                    // 增量导出：过滤为只保留上次游标之后的新增消息
+                    if incrementalExportEnabled {
+                        let exportDirPath = base.path
+                        let lastTs = IncrementalExport.loadCursor(contactID: contact.id, exportDir: exportDirPath)
+                        if let lastTs {
+                            count = IncrementalExport.filterArtifacts(in: tempDir, contactID: contact.id, after: lastTs, log: logHandler())
+                            if count == 0 {
+                                summary.append("• \(contact.displayName)：无新增消息，已跳过")
+                                continue
+                            }
+                            let maxTs = IncrementalExport.maxTimestamp(in: tempDir)
+                            if maxTs > lastTs {
+                                IncrementalExport.saveCursor(contactID: contact.id, exportDir: exportDirPath, lastTimestamp: maxTs)
+                            }
+                        } else {
+                            IncrementalExport.saveCursor(
+                                contactID: contact.id,
+                                exportDir: exportDirPath,
+                                lastTimestamp: IncrementalExport.maxTimestamp(in: tempDir)
+                            )
+                        }
+                    }
                     let contactDir = base.appendingPathComponent(contact.displayName, isDirectory: true)
                     try FileManager.default.createDirectory(at: contactDir, withIntermediateDirectories: true)
                     try copyTextArtifacts(from: tempDir, to: contactDir)
                     summary.append("• \(contact.displayName)：\(count) 条")
                 }
             }
+
+            // 目录导航页 + 全文检索（扫描导出目录，生成 index.html）
+            if indexPageEnabled {
+                _ = ExportIndexBuilder.writeIndex(into: base, log: logHandler())
+            }
+
             alertMessage = "已导出 \(selected.count) 个会话到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n导出方式：\(mode.displayName)"
             showAlert = true
         } catch {
@@ -654,6 +705,22 @@ final class AppViewModel: ObservableObject {
     func setStatsReportEnabled(_ value: Bool) {
         statsReportEnabled = value
         ExportModePreferences.statsReportEnabled = value
+    }
+
+    /// 增量导出开关（设置面板绑定，默认关闭）
+    @Published var incrementalExportEnabled: Bool = ExportModePreferences.incrementalExportEnabled
+
+    func setIncrementalExportEnabled(_ value: Bool) {
+        incrementalExportEnabled = value
+        ExportModePreferences.incrementalExportEnabled = value
+    }
+
+    /// 目录导航页开关（设置面板绑定，默认开启）
+    @Published var indexPageEnabled: Bool = ExportModePreferences.indexPageEnabled
+
+    func setIndexPageEnabled(_ value: Bool) {
+        indexPageEnabled = value
+        ExportModePreferences.indexPageEnabled = value
     }
 
     /// 记录用户对诊断上传条款的选择（条款弹窗按钮调用）

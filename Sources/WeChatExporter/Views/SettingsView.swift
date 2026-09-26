@@ -284,6 +284,54 @@ private struct ExportSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // 增量导出
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("增量导出")
+                            .font(.headline)
+                    }
+
+                    Toggle("只导出上次之后的新增消息（按联系人+目录记忆游标）", isOn: Binding(
+                        get: { model.incrementalExportEnabled },
+                        set: { model.setIncrementalExportEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("每次导出按「联系人 + 导出目录」记录时间戳游标，下次只保留新增消息；无新增的会话自动跳过。首次开启会记录基线，从下次导出开始生效。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 目录导航页（全文检索）
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "magnifyingglass.circle")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("目录导航页（全文检索）")
+                            .font(.headline)
+                    }
+
+                    Toggle("导出后在目录中生成 index.html（文件列表 + 全文检索框）", isOn: Binding(
+                        get: { model.indexPageEnabled },
+                        set: { model.setIndexPageEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("扫描导出目录生成导航页：单文件/统计报告入口 + 关键词全文检索（内嵌文本数据，可离线打开）。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // 诊断日志上传
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {

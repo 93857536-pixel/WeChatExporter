@@ -209,6 +209,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private bool _incrementalExportEnabled;
+
+    /// <summary>只导出上次之后的新增消息（按联系人+目录记忆游标，默认关闭）。</summary>
+    public bool IncrementalExportEnabled
+    {
+        get => _incrementalExportEnabled;
+        set
+        {
+            if (_incrementalExportEnabled == value) return;
+            _incrementalExportEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private bool _indexPageEnabled = true;
+
+    /// <summary>导出后生成目录导航页 index.html（文件列表 + 全文检索框，默认开启）。</summary>
+    public bool IndexPageEnabled
+    {
+        get => _indexPageEnabled;
+        set
+        {
+            if (_indexPageEnabled == value) return;
+            _indexPageEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
     public bool IsDownloadingWhisperModel
     {
         get => _isDownloadingWhisperModel;
@@ -461,6 +489,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     {
                         ImageOcrService.OcrAll(tempDir, AppendLog);
                     }
+                    // 增量导出：过滤为只保留上次游标之后的新增消息
+                    if (IncrementalExportEnabled)
+                    {
+                        var lastTs = IncrementalExport.LoadCursor(contact.Id, ExportPath);
+                        if (lastTs is { } after)
+                        {
+                            count = IncrementalExport.FilterArtifacts(tempDir, contact.Id, after, AppendLog);
+                            if (count == 0)
+                            {
+                                summary.Add($"• {contact.DisplayName}：无新增消息，已跳过");
+                                continue;
+                            }
+                            var maxTs = IncrementalExport.MaxTimestamp(tempDir);
+                            if (maxTs > after)
+                                IncrementalExport.SaveCursor(contact.Id, ExportPath, maxTs);
+                        }
+                        else
+                        {
+                            IncrementalExport.SaveCursor(contact.Id, ExportPath, IncrementalExport.MaxTimestamp(tempDir));
+                        }
+                    }
                     var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
                     summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
                     // 统计报告（本地聚合 chat.json，生成单文件 HTML）
@@ -475,6 +524,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 {
                     try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { /* ignore */ }
                 }
+            }
+
+            // 目录导航页 + 全文检索（扫描导出目录，生成 index.html）
+            if (IndexPageEnabled)
+            {
+                ExportIndexBuilder.WriteIndex(ExportPath, AppendLog);
             }
 
             ShowAlert($"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
