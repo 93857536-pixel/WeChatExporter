@@ -144,7 +144,18 @@ fi
 
 sync
 sleep 1
-hdiutil detach "$DEVICE" >/dev/null
+# CI 上挂载卷释放慢时一次 detach 可能报 "Resource busy"(exit 16)，重试兜底
+for attempt in 1 2 3 4 5; do
+  if hdiutil detach "$DEVICE" >/dev/null 2>&1; then break; fi
+  echo "警告：第 $attempt 次卸载失败，等待 3 秒重试…"
+  sleep 3
+done
+# 仍挂载则强制卸载
+if hdiutil info | grep -q "$DEVICE"; then
+  echo "警告：常规卸载失败，强制卸载 $DEVICE"
+  hdiutil detach "$DEVICE" -force || true
+  sleep 2
+fi
 
 OUT="$ROOT/$DMG_NAME"
 rm -f "$OUT"
