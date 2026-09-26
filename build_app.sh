@@ -16,15 +16,15 @@ cd "$ROOT"
 # 双架构分别构建（独立 scratch 目录避免覆盖），再 lipo 合成 universal。
 # 旧版 SwiftPM(Xcode 15.4/CI) 单命令多 --arch 的产物路径不可靠，分次构建对新老工具链都稳定。
 UNIVERSAL_BIN="$ROOT/.build/universal/WeChatExporter"
-mkdir -p "$UNIVERSAL_BIN" && rm -f "$UNIVERSAL_BIN"
+rm -rf "$ROOT/.build/universal" "$ROOT/.build/scratch-x86_64" "$ROOT/.build/scratch-arm64"
+mkdir -p "$ROOT/.build/universal"
 SLICES=()
 for ARCH in x86_64 arm64; do
   echo "  → 构建 $ARCH 切片…"
   swift build -c release --arch "$ARCH" --scratch-path "$ROOT/.build/scratch-$ARCH"
   CAND=""
   for C in "$ROOT/.build/scratch-$ARCH/release/WeChatExporter" \
-           "$ROOT/.build/scratch-$ARCH/out/Products/Release/$APP_NAME" \
-           "$ROOT/.build/release/WeChatExporter"; do
+           "$ROOT/.build/scratch-$ARCH/out/Products/Release/$APP_NAME"; do
     [[ -x "$C" ]] && CAND="$C" && break
   done
   if [[ -z "$CAND" ]]; then
