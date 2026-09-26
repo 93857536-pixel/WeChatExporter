@@ -120,6 +120,11 @@ struct ContentView: View {
         .sheet(isPresented: $model.showSettings) {
             SettingsView(model: model)
         }
+        .sheet(isPresented: $model.showSearch) {
+            SearchPanel(model: model) {
+                model.showSearch = false
+            }
+        }
         .task {
             await model.startIfNeeded()
             model.checkUpdateOnStartup()
@@ -278,6 +283,13 @@ struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .tint(AppTheme.accent)
             .disabled(model.isBusy || model.selectedIDs.isEmpty)
+
+            Button {
+                model.showSearch = true
+            } label: {
+                Label("搜索", systemImage: "text.magnifyingglass")
+            }
+            .disabled(model.isBusy)
 
             Button {
                 model.showSettings = true

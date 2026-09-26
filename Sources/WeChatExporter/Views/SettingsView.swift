@@ -418,6 +418,192 @@ private struct ExportSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // 全文搜索索引（v2.19）
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "text.magnifyingglass")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("全文搜索")
+                            .font(.headline)
+                    }
+
+                    Toggle("导出时生成搜索索引 wce-search.sqlite（FTS5，可 App 内/CLI 全文检索）", isOn: Binding(
+                        get: { model.searchIndexEnabled },
+                        set: { model.setSearchIndexEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("索引随导出落盘在导出根目录；工具栏「搜索」按钮或命令行 wce search <关键词> 检索，命中结果可跳转到对应聊天记录。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 过滤导出（v2.19）
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("过滤导出")
+                            .font(.headline)
+                    }
+
+                    Toggle("只导出指定时间区间与关键词命中的消息", isOn: Binding(
+                        get: { model.filterEnabled },
+                        set: { model.setFilterEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    HStack(spacing: 8) {
+                        DatePicker("", selection: Binding(
+                            get: { model.filterFromDate.isEmpty ? Date() : (Self.dateFromCompact(model.filterFromDate) ?? Date()) },
+                            set: { model.setFilterFromDate(Self.compactDate($0)) }
+                        ), displayedComponents: [.date])
+                        .labelsHidden()
+                        Text("~")
+                            .foregroundStyle(AppTheme.subtleText)
+                        DatePicker("", selection: Binding(
+                            get: { model.filterToDate.isEmpty ? Date() : (Self.dateFromCompact(model.filterToDate) ?? Date()) },
+                            set: { model.setFilterToDate(Self.compactDate($0)) }
+                        ), displayedComponents: [.date])
+                        .labelsHidden()
+                    }
+                    .disabled(!model.filterEnabled)
+
+                    TextField("关键词（逗号分隔，不区分大小写；留空 = 不过滤内容）", text: Binding(
+                        get: { model.filterKeywords },
+                        set: { model.setFilterKeywords($0) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(!model.filterEnabled)
+
+                    Text("过滤在脱敏/索引/报告之前生效：产物只保留命中消息，后续所有生成物基于过滤后的数据。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 脱敏导出（v2.19）
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "eye.slash")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("脱敏导出")
+                            .font(.headline)
+                    }
+
+                    Toggle("把产物中真实名称替换为 用户A/用户B/… 代号（确定性映射）", isOn: Binding(
+                        get: { model.anonEnabled },
+                        set: { model.setAnonEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Toggle("同时模糊化手机号 / 身份证 / 邮箱", isOn: Binding(
+                        get: { model.anonMaskPii },
+                        set: { model.setAnonMaskPii($0) }
+                    ))
+                    .disabled(!model.anonEnabled)
+
+                    Toggle("保留映射文件 anonymization-map.json（关闭 = 导出后销毁，不可逆）", isOn: Binding(
+                        get: { model.anonKeepMapping },
+                        set: { model.setAnonKeepMapping($0) }
+                    ))
+                    .disabled(!model.anonEnabled)
+
+                    Text("脱敏在过滤之后、索引/报告/水印之前生效，因此所有生成物（含统计与年度报告）都看不到真实名称。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 年度报告 / 日历提取（v2.19）
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "calendar.badge.clock")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("年度报告 / 日历提取")
+                            .font(.headline)
+                    }
+
+                    Toggle("生成年度可视化报告（热力图/词频/排行，单文件 HTML）", isOn: Binding(
+                        get: { model.annualReportEnabled },
+                        set: { model.setAnnualReportEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Toggle("从聊天中识别时间约定，生成日历事件（.ics 可导入系统日历）", isOn: Binding(
+                        get: { model.calendarExtractEnabled },
+                        set: { model.setCalendarExtractEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("年度报告聚合导出目录下全部会话数据；日历事件识别「明天/周X/M月D日/N点」等约定，默认 60 分钟时长。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 定时增量导出（v2.19）
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("定时增量导出")
+                            .font(.headline)
+                    }
+
+                    Toggle("启用定时增量同步（无人值守，无新增则静默）", isOn: Binding(
+                        get: { model.autoSyncEnabled },
+                        set: { model.setAutoSyncEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Stepper("每 \(model.autoSyncIntervalMinutes) 分钟", value: Binding(
+                        get: { model.autoSyncIntervalMinutes },
+                        set: { model.setAutoSyncInterval($0) }
+                    ), in: 5...1440, step: 5)
+
+                    HStack(spacing: 8) {
+                        Button(model.autoSyncInstalled ? "重装定时任务" : "安装定时任务") {
+                            model.installAutoSyncTask(log: model.appendLog)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!model.autoSyncEnabled)
+                        Button("卸载") { model.uninstallAutoSyncTask() }
+                            .buttonStyle(.bordered)
+                            .tint(model.autoSyncInstalled ? .primary : .gray)
+                        Spacer()
+                        Text(model.autoSyncInstalled ? "已安装" : "未安装")
+                            .font(AppTheme.monoFontSm)
+                            .foregroundStyle(model.autoSyncInstalled ? AppTheme.success : AppTheme.subtleText)
+                    }
+
+                    if !model.autoSyncLastRun.isEmpty {
+                        Text("上次运行：\(model.autoSyncLastRun)")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.subtleText)
+                    }
+                    Text("安装后系统每 N 分钟自动执行一次增量导出（launchd，日志在 ~/Library/Logs/wce-autosync.log）。会话范围默认为当前选中的联系人，留空 = 全部会话。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // wx-cli 设置（用户自带）
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {
@@ -473,6 +659,21 @@ private struct ExportSettingsTab: View {
     private func changeMode(_ mode: ExportMode) {
         model.exportMode = mode
         ExportModePreferences.mode = mode
+    }
+
+    // 过滤日期 helper（yyyy-MM-dd 字符串 <-> Date）
+    static func compactDate(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        return f.string(from: d)
+    }
+
+    static func dateFromCompact(_ s: String) -> Date? {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        return f.date(from: s)
     }
 }
 

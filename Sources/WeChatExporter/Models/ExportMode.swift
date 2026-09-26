@@ -53,6 +53,22 @@ enum ExportModePreferences {
         static let ebookDocument = "export.ebookDocument"
         static let watermarkEnabled = "export.watermarkEnabled"
         static let watermarkText = "export.watermarkText"
+        static let searchIndex = "export.searchIndex"
+        static let autoSyncEnabled = "export.autoSync.enabled"
+        static let autoSyncInterval = "export.autoSync.intervalMinutes"
+        static let autoSyncExportDir = "export.autoSync.exportDir"
+        static let autoSyncContacts = "export.autoSync.contactIDs"
+        static let autoSyncLastRun = "export.autoSync.lastRun"
+        static let anonEnabled = "export.anon.enabled"
+        static let anonMaskPii = "export.anon.maskPii"
+        static let anonKeepMapping = "export.anon.keepMapping"
+        static let filterEnabled = "export.filter.enabled"
+        static let filterFrom = "export.filter.fromDate"
+        static let filterTo = "export.filter.toDate"
+        static let filterKeywords = "export.filter.keywords"
+        static let annualReport = "export.annualReport"
+        static let calendarExtract = "export.calendarExtract"
+        static let lastExportDir = "export.lastDir"
     }
 
     static var mode: ExportMode {
@@ -171,6 +187,177 @@ enum ExportModePreferences {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Keys.watermarkText)
+        }
+    }
+
+    // MARK: - v2.19 新功能设置（见 docs/MULTIPLATFORM_SPEC.md）
+
+    /// 导出时在根目录生成 wce-search.sqlite 全文搜索索引（默认开启）
+    static var searchIndexEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.searchIndex) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.searchIndex)
+        }
+    }
+
+    /// 定时增量导出总开关（默认关闭）
+    static var autoSyncEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.autoSyncEnabled) as? Bool
+            return v ?? false
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.autoSyncEnabled)
+        }
+    }
+
+    /// 定时间隔分钟数（默认 60，最小 5）
+    static var autoSyncIntervalMinutes: Int {
+        get {
+            let v = UserDefaults.standard.integer(forKey: Keys.autoSyncInterval)
+            return v == 0 ? 60 : v
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.autoSyncInterval)
+        }
+    }
+
+    /// 定时任务目标目录（默认=导出根目录）
+    static var autoSyncExportDir: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.autoSyncExportDir) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.autoSyncExportDir)
+        }
+    }
+
+    /// 定时任务会话子集（JSON 数组字符串；空=全部）
+    static var autoSyncContactIDs: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.autoSyncContacts) ?? "[]"
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.autoSyncContacts)
+        }
+    }
+
+    /// 上次定时运行时间（ISO 本地格式）
+    static var autoSyncLastRun: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.autoSyncLastRun) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.autoSyncLastRun)
+        }
+    }
+
+    /// 脱敏导出总开关（默认关闭）
+    static var anonEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.anonEnabled) as? Bool
+            return v ?? false
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.anonEnabled)
+        }
+    }
+
+    /// 脱敏时是否同时模糊化 PII（手机号/身份证/邮箱，默认开启）
+    static var anonMaskPii: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.anonMaskPii) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.anonMaskPii)
+        }
+    }
+
+    /// 脱敏后是否保留映射文件（可逆；关闭=导出后销毁）
+    static var anonKeepMapping: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.anonKeepMapping) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.anonKeepMapping)
+        }
+    }
+
+    /// 过滤导出总开关（默认关闭）
+    static var filterEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.filterEnabled) as? Bool
+            return v ?? false
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.filterEnabled)
+        }
+    }
+
+    /// 过滤起始日期 yyyy-MM-dd（含；空=不限）
+    static var filterFromDate: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.filterFrom) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.filterFrom)
+        }
+    }
+
+    /// 过滤结束日期 yyyy-MM-dd（含；空=不限）
+    static var filterToDate: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.filterTo) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.filterTo)
+        }
+    }
+
+    /// 过滤关键词（逗号分隔，不区分大小写；空=不过滤内容）
+    static var filterKeywords: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.filterKeywords) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.filterKeywords)
+        }
+    }
+
+    /// 生成年度可视化报告 HTML（默认开启）
+    static var annualReportEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.annualReport) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.annualReport)
+        }
+    }
+
+    /// 提取日历事件 .ics/.json（默认开启）
+    static var calendarExtractEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.calendarExtract) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.calendarExtract)
+        }
+    }
+
+    /// 最近一次导出目录（搜索面板用它定位 wce-search.sqlite）
+    static var lastExportDir: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.lastExportDir) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.lastExportDir)
         }
     }
 }

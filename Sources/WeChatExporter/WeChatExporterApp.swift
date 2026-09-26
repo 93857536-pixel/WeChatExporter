@@ -7,6 +7,13 @@ struct WeChatExporterApp: App {
     @StateObject private var model = AppViewModel()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        // v2.19 无头 CLI（SPEC §7）：`wce <subcmd>` 不启动 GUI，同步跑完即退出
+        if HeadlessCLI.shouldRun {
+            exit(HeadlessCLI.run())
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)

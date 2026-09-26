@@ -383,34 +383,55 @@ final class AppViewModel: ObservableObject {
                         summary.append("• \(contact.displayName)：\(count) 条（文字 + 媒体文件）")
                     }
 
-                    // 统计报告（本地聚合 chat.json，生成单文件 HTML）
-                    if statsReportEnabled {
-                        _ = await ChatStatsReport.writeReport(
-                            from: tempDir,
+                    // v2.19 过滤导出（SPEC §4：先过滤，后续产物基于过滤后的 chat.json）
+                    let jsonDir: URL = mode == .categorized
+                        ? base.appendingPathComponent("\(Self.sanitizeContactDirName(contact.displayName))/文字", isDirectory: true)
+                        : base.appendingPathComponent(contact.displayName, isDirectory: true)
+                    var filterSkipped = false
+                    if filterEnabled, FileManager.default.fileExists(atPath: jsonDir.appendingPathComponent("chat.json").path) {
+                        let fr = ExportFilterService.filterContactDir(
+                            jsonDir,
                             contactName: contact.displayName,
-                            into: base,
+                            fromDate: ExportModePreferences.filterFromDate,
+                            toDate: ExportModePreferences.filterToDate,
+                            keywords: ExportModePreferences.filterKeywords,
                             log: logHandler()
                         )
-                    }
-                    // 电子书 / 文档版（本地聚合 chat.json，生成 EPUB 与 PDF）
-                    if ebookEpubEnabled {
-                        if let url = EBookExporter.writeEpub(
-                            from: tempDir,
-                            contactName: contact.displayName,
-                            into: base,
-                            log: logHandler()
-                        ) {
-                            summary.append("• \(contact.displayName) EPUB → \(url.lastPathComponent)")
+                        if fr.total > 0, fr.kept == 0 {
+                            filterSkipped = true
+                            summary.append("• \(contact.displayName)：过滤后 0 条命中，跳过报告")
                         }
                     }
-                    if ebookDocumentEnabled {
-                        if let url = EBookExporter.writePdf(
-                            from: tempDir,
-                            contactName: contact.displayName,
-                            into: base,
-                            log: logHandler()
-                        ) {
-                            summary.append("• \(contact.displayName) PDF → \(url.lastPathComponent)")
+
+                    // 统计报告 / 电子书 / 文档版（基于过滤后的 chat.json；无数据则跳过）
+                    if !filterSkipped {
+                        if statsReportEnabled {
+                            _ = await ChatStatsReport.writeReport(
+                                from: jsonDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                log: logHandler()
+                            )
+                        }
+                        if ebookEpubEnabled {
+                            if let url = EBookExporter.writeEpub(
+                                from: jsonDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                log: logHandler()
+                            ) {
+                                summary.append("• \(contact.displayName) EPUB → \(url.lastPathComponent)")
+                            }
+                        }
+                        if ebookDocumentEnabled {
+                            if let url = EBookExporter.writePdf(
+                                from: jsonDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                log: logHandler()
+                            ) {
+                                summary.append("• \(contact.displayName) PDF → \(url.lastPathComponent)")
+                            }
                         }
                     }
                 }
@@ -473,30 +494,49 @@ final class AppViewModel: ObservableObject {
                             )
                         }
                     }
+
+                    // v2.19 过滤导出（SPEC §4）：先拷贝文字产物，再对 contactDir 过滤
                     let contactDir = base.appendingPathComponent(contact.displayName, isDirectory: true)
                     try FileManager.default.createDirectory(at: contactDir, withIntermediateDirectories: true)
                     try copyTextArtifacts(from: tempDir, to: contactDir)
-                    summary.append("• \(contact.displayName)：\(count) 条")
-
-                    // 电子书 / 文档版（本地聚合 chat.json，生成 EPUB 与 PDF）
-                    if ebookEpubEnabled {
-                        if let url = EBookExporter.writeEpub(
-                            from: tempDir,
+                    var filterSkipped = false
+                    if filterEnabled, FileManager.default.fileExists(atPath: contactDir.appendingPathComponent("chat.json").path) {
+                        let fr = ExportFilterService.filterContactDir(
+                            contactDir,
                             contactName: contact.displayName,
-                            into: base,
+                            fromDate: ExportModePreferences.filterFromDate,
+                            toDate: ExportModePreferences.filterToDate,
+                            keywords: ExportModePreferences.filterKeywords,
                             log: logHandler()
-                        ) {
-                            summary.append("• \(contact.displayName) EPUB → \(url.lastPathComponent)")
+                        )
+                        if fr.total > 0, fr.kept == 0 {
+                            filterSkipped = true
+                            summary.append("• \(contact.displayName)：过滤后 0 条命中，跳过报告")
                         }
                     }
-                    if ebookDocumentEnabled {
-                        if let url = EBookExporter.writePdf(
-                            from: tempDir,
-                            contactName: contact.displayName,
-                            into: base,
-                            log: logHandler()
-                        ) {
-                            summary.append("• \(contact.displayName) PDF → \(url.lastPathComponent)")
+                    summary.append("• \(contact.displayName)：\(count) 条")
+
+                    // 电子书 / 文档版（基于过滤后的 chat.json）
+                    if !filterSkipped {
+                        if ebookEpubEnabled {
+                            if let url = EBookExporter.writeEpub(
+                                from: contactDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                log: logHandler()
+                            ) {
+                                summary.append("• \(contact.displayName) EPUB → \(url.lastPathComponent)")
+                            }
+                        }
+                        if ebookDocumentEnabled {
+                            if let url = EBookExporter.writePdf(
+                                from: contactDir,
+                                contactName: contact.displayName,
+                                into: base,
+                                log: logHandler()
+                            ) {
+                                summary.append("• \(contact.displayName) PDF → \(url.lastPathComponent)")
+                            }
                         }
                     }
                 }
@@ -507,10 +547,48 @@ final class AppViewModel: ObservableObject {
                 _ = ExportIndexBuilder.writeIndex(into: base, log: logHandler())
             }
 
+            // v2.19 全局后处理管线（SPEC §3 顺序：过滤 → 脱敏 → 搜索索引 → 年报/日历 → 水印）
+            if filterEnabled {
+                _ = ExportFilterService.apply(
+                    in: base,
+                    fromDate: ExportModePreferences.filterFromDate,
+                    toDate: ExportModePreferences.filterToDate,
+                    keywords: ExportModePreferences.filterKeywords,
+                    log: logHandler()
+                )
+            }
+            if anonEnabled {
+                let names = AnonymizationService.collectNames(in: base)
+                _ = AnonymizationService.anonymize(
+                    in: base,
+                    names: Array(names),
+                    settings: .init(
+                        maskPii: ExportModePreferences.anonMaskPii,
+                        keepMapping: ExportModePreferences.anonKeepMapping
+                    ),
+                    log: logHandler()
+                )
+                summary.append(ExportModePreferences.anonKeepMapping
+                    ? "🕶 已脱敏（映射文件在导出根目录，可逆）"
+                    : "🕶 已脱敏（不可逆，映射已销毁）")
+            }
+            if searchIndexEnabled {
+                _ = SearchIndexService.build(in: base, log: logHandler())
+            }
+            if annualReportEnabled {
+                _ = AnnualReportService.write(in: base, log: logHandler())
+            }
+            if calendarExtractEnabled {
+                _ = CalendarExtractService.extract(in: base, log: logHandler())
+            }
+
             // 导出水印：兜底扫描导出目录全部 HTML（幂等，已注入的跳过），缺水印层的补上
             if watermarkEnabled {
                 Watermark.applyToDirectory(base, log: logHandler())
             }
+
+            // 记录最近导出目录（搜索面板 / wce CLI 用它定位索引）
+            ExportModePreferences.lastExportDir = base.path
 
             // 加密导出（密码非空 → 整体加密为 .wxenc 并删除明文目录）
             if !exportPassword.isEmpty {
@@ -815,6 +893,142 @@ final class AppViewModel: ObservableObject {
         ExportModePreferences.indexPageEnabled = value
     }
 
+    // MARK: - v2.19 新功能设置（SPEC：docs/MULTIPLATFORM_SPEC.md）
+
+    /// 全文搜索索引开关（默认开启）
+    @Published var searchIndexEnabled: Bool = ExportModePreferences.searchIndexEnabled
+
+    func setSearchIndexEnabled(_ value: Bool) {
+        searchIndexEnabled = value
+        ExportModePreferences.searchIndexEnabled = value
+    }
+
+    /// 脱敏导出（默认关闭）
+    @Published var anonEnabled: Bool = ExportModePreferences.anonEnabled
+    @Published var anonMaskPii: Bool = ExportModePreferences.anonMaskPii
+    @Published var anonKeepMapping: Bool = ExportModePreferences.anonKeepMapping
+
+    func setAnonEnabled(_ value: Bool) { anonEnabled = value; ExportModePreferences.anonEnabled = value }
+    func setAnonMaskPii(_ value: Bool) { anonMaskPii = value; ExportModePreferences.anonMaskPii = value }
+    func setAnonKeepMapping(_ value: Bool) { anonKeepMapping = value; ExportModePreferences.anonKeepMapping = value }
+
+    /// 过滤导出（默认关闭）
+    @Published var filterEnabled: Bool = ExportModePreferences.filterEnabled
+    @Published var filterFromDate: String = ExportModePreferences.filterFromDate
+    @Published var filterToDate: String = ExportModePreferences.filterToDate
+    @Published var filterKeywords: String = ExportModePreferences.filterKeywords
+
+    func setFilterEnabled(_ value: Bool) { filterEnabled = value; ExportModePreferences.filterEnabled = value }
+    func setFilterFromDate(_ value: String) { filterFromDate = value; ExportModePreferences.filterFromDate = value }
+    func setFilterToDate(_ value: String) { filterToDate = value; ExportModePreferences.filterToDate = value }
+    func setFilterKeywords(_ value: String) { filterKeywords = value; ExportModePreferences.filterKeywords = value }
+
+    /// 年度报告 / 日历提取（默认开启）
+    @Published var annualReportEnabled: Bool = ExportModePreferences.annualReportEnabled
+    @Published var calendarExtractEnabled: Bool = ExportModePreferences.calendarExtractEnabled
+
+    func setAnnualReportEnabled(_ value: Bool) { annualReportEnabled = value; ExportModePreferences.annualReportEnabled = value }
+    func setCalendarExtractEnabled(_ value: Bool) { calendarExtractEnabled = value; ExportModePreferences.calendarExtractEnabled = value }
+
+    /// 定时增量导出（默认关闭）
+    @Published var autoSyncEnabled: Bool = ExportModePreferences.autoSyncEnabled
+    @Published var autoSyncIntervalMinutes: Int = ExportModePreferences.autoSyncIntervalMinutes
+    @Published var autoSyncContactIDsJSON: String = ExportModePreferences.autoSyncContactIDs
+
+    func setAutoSyncEnabled(_ value: Bool) { autoSyncEnabled = value; ExportModePreferences.autoSyncEnabled = value }
+    func setAutoSyncInterval(_ value: Int) { autoSyncIntervalMinutes = value; ExportModePreferences.autoSyncIntervalMinutes = value }
+
+    /// 安装定时任务（launchd）：把当前选中的会话子集与间隔写入并 bootstrap
+    func installAutoSyncTask(log: @escaping (String) -> Void) -> Bool {
+        let idsJSON: String
+        if !autoSyncContactIDsJSON.isEmpty, autoSyncContactIDsJSON != "[]" {
+            idsJSON = autoSyncContactIDsJSON
+        } else {
+            idsJSON = (try? JSONSerialization.data(withJSONObject: Array(selectedIDs))).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        }
+        ExportModePreferences.autoSyncContactIDs = idsJSON
+        let dir = ExportModePreferences.autoSyncExportDir.isEmpty ? exportPath : ExportModePreferences.autoSyncExportDir
+        ExportModePreferences.autoSyncExportDir = dir
+        let ok = AutoSyncScheduler.install(
+            intervalMinutes: max(5, autoSyncIntervalMinutes),
+            exportDir: dir,
+            contactIDsJSON: idsJSON,
+            log: log
+        )
+        appendLog(ok ? "定时增量导出已安装（每 \(max(5, autoSyncIntervalMinutes)) 分钟）" : "定时任务安装失败，详见日志")
+        return ok
+    }
+
+    func uninstallAutoSyncTask() {
+        AutoSyncScheduler.uninstall(log: appendLog)
+    }
+
+    var autoSyncInstalled: Bool { AutoSyncScheduler.isInstalled }
+    var autoSyncLastRun: String { ExportModePreferences.autoSyncLastRun }
+
+    // MARK: - 搜索面板
+
+    @Published var showSearch = false
+    @Published var searchKeyword = ""
+    @Published var searchHits: [SearchIndexService.Hit] = []
+    @Published var searched = false
+    @Published var searchIndexAvailable = false
+
+    func runSearch() {
+        let kw = searchKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !kw.isEmpty else {
+            searchHits = []
+            searched = true
+            return
+        }
+        let dir = ExportModePreferences.lastExportDir.isEmpty
+            ? exportPath
+            : ExportModePreferences.lastExportDir
+        let indexURL = URL(fileURLWithPath: dir, isDirectory: true)
+            .appendingPathComponent(SearchIndexService.fileName)
+        guard let db = SearchIndexService.open(indexAt: indexURL) else {
+            searchIndexAvailable = false
+            searchHits = []
+            searched = true
+            appendLog("搜索索引不存在（\(indexURL.lastPathComponent)），请先导出并开启「搜索索引」")
+            return
+        }
+        searchIndexAvailable = true
+        searchHits = SearchIndexService.query(db: db, keyword: kw, limit: 200)
+        searched = true
+        appendLog("全文搜索「\(kw)」：\(searchHits.count) 条命中")
+    }
+
+    /// 定位命中消息所在会话的 chat.txt
+    func openSearchHit(_ hit: SearchIndexService.Hit) {
+        let dir = ExportModePreferences.lastExportDir.isEmpty
+            ? exportPath
+            : ExportModePreferences.lastExportDir
+        let base = URL(fileURLWithPath: dir, isDirectory: true)
+        // 会话名 = chat（索引里的会话显示名）；找 <会话>/chat.txt 或 <会话>/文字/chat.txt
+        let candidates = [
+            base.appendingPathComponent("\(hit.chat)/chat.txt"),
+            base.appendingPathComponent("\(hit.chat)/文字/chat.txt"),
+        ]
+        for c in candidates where FileManager.default.fileExists(atPath: c.path) {
+            NSWorkspace.shared.open(c)
+            return
+        }
+        NSWorkspace.shared.open(base)
+    }
+
+    func rebuildSearchIndex() {
+        let dir = ExportModePreferences.lastExportDir.isEmpty
+            ? exportPath
+            : ExportModePreferences.lastExportDir
+        let base = URL(fileURLWithPath: dir, isDirectory: true)
+        let n = SearchIndexService.build(in: base, log: appendLog)
+        if n == 0 {
+            searchIndexAvailable = false
+        }
+        runSearch()
+    }
+
     /// EPUB 电子书开关（设置面板绑定，默认开启）
     @Published var ebookEpubEnabled: Bool = ExportModePreferences.ebookEpubEnabled
 
@@ -846,12 +1060,20 @@ final class AppViewModel: ObservableObject {
     }
 }
 
-private extension String {
-    var expandingTildeInPath: String {
-        (self as NSString).expandingTildeInPath
+    private extension String {
+        var expandingTildeInPath: String {
+            (self as NSString).expandingTildeInPath
+        }
+
+        var nonEmpty: String? {
+            isEmpty ? nil : self
+        }
     }
 
-    var nonEmpty: String? {
-        isEmpty ? nil : self
+extension AppViewModel {
+    /// 与 MediaOrganizer.sanitizeFilename 同口径：非法字符 → 下划线
+    static func sanitizeContactDirName(_ name: String) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\:?*\"<>|")
+        return name.components(separatedBy: invalid).joined(separator: "_")
     }
 }

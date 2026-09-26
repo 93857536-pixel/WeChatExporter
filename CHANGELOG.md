@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.19.0] - 2026-09-26（进行中）
+
+### Added
+- **全文搜索（P0）**：导出时生成 `wce-search.sqlite`（FTS5，不可用时自动降级 LIKE）；App 工具栏新增「搜索」面板（命中结果按时间倒序、可跳转对应聊天记录）；无头 CLI `wce search <kw>` / `wce index`
+- **定时增量导出（P0）**：macOS launchd / Windows schtasks / Linux systemd user timer 一键安装/卸载，每 N 分钟无人值守增量同步（无新增静默）；无头 `wce --auto-sync`
+- **脱敏导出（P1）**：名称代号化（用户A/B/…确定性映射）+ PII 模糊化（手机号 138\*\*\*\*5678 / 身份证保头6尾2 / 邮箱首字符+\*\*\*@域名）；映射文件 `anonymization-map.json`（可保留或销毁，销毁即不可逆）
+- **过滤导出（P1）**：时间区间 + 关键词过滤，过滤先于脱敏/索引/报告，所有生成物基于过滤后数据；摘要行提示保留 X/Y 条
+- **年度报告（P2）**：`年度报告_YYYY.html` 单文件暗色科技风——概览卡、月度柱状、月×星期热力图、词频 Top30（CJK bigram+拉丁分词）、跨会话发言排行、24 小时分布
+- **日历提取（P2）**：启发式识别「明天/周X/M月D日/下午N点」等约定，生成 `日历事件.json` + `日历事件.ics`（TZID=Asia/Shanghai，默认 60 分钟）
+- **Linux 端（新平台）**：Tauri v2 + Rust，深色科技风 UI（霓虹青 #00f5ff 与 HTML 报告同主题）；功能与 macOS/Windows 对齐（数据源 = 用户指定已解密 SQLite 目录，与 macOS native 后端同口径）
+- 无头 CLI 统一三端：`wce --auto-sync / search / index / report / --version / --help`
+- 设置项（三端同名键）：`export.searchIndex / autoSync.* / anon.* / filter.* / annualReport / calendarExtract`
+
+### 说明
+- 顺序管线（SPEC §3）：过滤 → 脱敏 → 搜索索引 → 年报/日历 → 水印兜底 → 加密导出
+- 详细契约见 `docs/MULTIPLATFORM_SPEC.md`
+
 ## [2.18.0] - 2026-09-26
 
 ### Added
