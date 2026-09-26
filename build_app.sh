@@ -57,11 +57,10 @@ else
   echo "警告：产物仅单架构（$ARCHS）"
 fi
 
-rm -rf "$ROOT/.build/scratch-x86_64" "$ROOT/.build/scratch-arm64" "$ROOT/.build/universal"
-
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/$APP_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$APP_NAME"
+rm -rf "$ROOT/.build/scratch-x86_64" "$ROOT/.build/scratch-arm64" "$ROOT/.build/universal"
 
 echo "打包内置 wx-cli…"
 bash "$ROOT/scripts/bundle_wx_cli.sh" "$APP_DIR/Contents/Resources"
