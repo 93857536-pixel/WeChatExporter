@@ -53,6 +53,9 @@ public partial class MainWindow : Window
 
     private void RestartAdmin_Click(object sender, RoutedEventArgs e)
         => _viewModel.RestartAsAdministrator();
+
+    private async void DownloadWhisperModel_Click(object sender, RoutedEventArgs e)
+        => await _viewModel.DownloadWhisperModelAsync();
 }
 
 public sealed class InverseBooleanConverter : IValueConverter

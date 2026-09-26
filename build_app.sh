@@ -23,6 +23,15 @@ echo "打包内置 wx-cli…"
 bash "$ROOT/scripts/bundle_wx_cli.sh" "$APP_DIR/Contents/Resources"
 chmod +x "$APP_DIR/Contents/Resources/wx-cli"
 
+echo "打包内置 SILK 解码器(silk2wav,语音转文字用)…"
+SILK2WAV="$ROOT/vendor/tools/silk/silk2wav"
+if [[ -f "$SILK2WAV" ]]; then
+  cp "$SILK2WAV" "$APP_DIR/Contents/Resources/silk2wav"
+  chmod +x "$APP_DIR/Contents/Resources/silk2wav"
+else
+  echo "警告：vendor/tools/silk/silk2wav 不存在，语音 SILK 转文字功能不可用"
+fi
+
 bash "$ROOT/scripts/prepare_icon.sh"
 if [[ -f "$ICON_SRC" ]]; then
   cp "$ICON_SRC" "$APP_DIR/Contents/Resources/AppIcon.icns"

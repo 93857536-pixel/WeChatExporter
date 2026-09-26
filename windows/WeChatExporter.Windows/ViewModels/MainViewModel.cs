@@ -148,6 +148,111 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private bool _voiceTranscriptionEnabled = true;
+
+    /// <summary>导出媒体时是否顺带做本地离线语音转文字（whisper.cpp，默认开启；缺工具自动跳过）。</summary>
+    public bool VoiceTranscriptionEnabled
+    {
+        get => _voiceTranscriptionEnabled;
+        set
+        {
+            if (_voiceTranscriptionEnabled == value) return;
+            _voiceTranscriptionEnabled = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(VoiceTranscriptStatus));
+        }
+    }
+
+    /// <summary>语音转文字工具就绪状态（设置面板展示）。</summary>
+    public string VoiceTranscriptStatus
+    {
+        get
+        {
+            var cli = VoiceTranscriber.LocateWhisperCli();
+            var model = VoiceTranscriber.LocateWhisperModel();
+            var s2w = VoiceTranscriber.LocateSilk2wav();
+            if (cli == null || model == null)
+                return VoiceTranscriptionEnabled
+                    ? "未检测到 whisper.cpp，导出时自动跳过；可点击「下载 whisper 模型」安装"
+                    : "未检测到 whisper.cpp（功能已关闭）";
+            var detail = $"whisper 模型：{Path.GetFileName(model)}";
+            detail += s2w != null ? " · SILK 解码器已内置" : " · 缺少 SILK 解码器（仅 .silk 语音不可转）";
+            return detail;
+        }
+    }
+
+    private bool _ocrEnabled = true;
+
+    /// <summary>导出媒体时是否对图片做本地离线 OCR（Windows.Media.Ocr，默认开启）。</summary>
+    public bool OcrEnabled
+    {
+        get => _ocrEnabled;
+        set
+        {
+            if (_ocrEnabled == value) return;
+            _ocrEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private bool _statsReportEnabled = true;
+
+    /// <summary>导出时是否顺带生成聊天统计报告（本地聚合 chat.json，默认开启）。</summary>
+    public bool StatsReportEnabled
+    {
+        get => _statsReportEnabled;
+        set
+        {
+            if (_statsReportEnabled == value) return;
+            _statsReportEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsDownloadingWhisperModel
+    {
+        get => _isDownloadingWhisperModel;
+        private set
+        {
+            if (_isDownloadingWhisperModel == value) return;
+            _isDownloadingWhisperModel = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(VoiceTranscriptStatus));
+        }
+    }
+    private bool _isDownloadingWhisperModel;
+
+    /// <summary>下载 whisper 模型（约 141MB）。</summary>
+    public async Task DownloadWhisperModelAsync()
+    {
+        if (IsDownloadingWhisperModel) return;
+        IsDownloadingWhisperModel = true;
+        try
+        {
+            var (ok, message) = await VoiceTranscriber.DownloadModelAsync(
+                progress: (_, text) => AppendLog($"模型下载 {text}"),
+                log: AppendLog);
+            if (ok)
+            {
+                ShowAlert($"whisper 模型已就绪：\n{message}\n\n请再安装 whisper-cli（GitHub：ggml-org/whisper.cpp releases 下载 whisper-cli.exe，放入程序目录或 PATH）。");
+                OnPropertyChanged(nameof(VoiceTranscriptStatus));
+            }
+            else
+            {
+                ShowError($"whisper 模型下载失败：{message}");
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            ShowError($"whisper 模型下载失败：{ex.Message}");
+        }
+        finally
+        {
+            IsDownloadingWhisperModel = false;
+        }
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -346,8 +451,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 try
                 {
                     var count = await _wxCli.ExportAsync(contact, tempDir, IncludeMedia, AppendLog);
+                    // 语音转文字（本地离线 whisper.cpp，缺工具自动跳过）
+                    if (IncludeMedia && VoiceTranscriber.IsAvailable())
+                    {
+                        VoiceTranscriber.TranscribeAll(tempDir, AppendLog);
+                    }
+                    // 图片 OCR（本地离线 Windows.Media.Ocr）
+                    if (IncludeMedia && OcrEnabled)
+                    {
+                        ImageOcrService.OcrAll(tempDir, AppendLog);
+                    }
                     var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
                     summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
+                    // 统计报告（本地聚合 chat.json，生成单文件 HTML）
+                    if (StatsReportEnabled)
+                    {
+                        var reportPath = ChatStatsReport.WriteReport(tempDir, contact.DisplayName, ExportPath, AppendLog);
+                        if (reportPath is not null)
+                            summary.Add($"• {contact.DisplayName} 统计报告 → {Path.GetFileName(reportPath)}");
+                    }
                 }
                 finally
                 {

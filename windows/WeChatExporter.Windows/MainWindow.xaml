@@ -97,6 +97,17 @@
                     <StackPanel>
                         <CheckBox Content="同时导出图片、表情、全部表情包等媒体并内嵌到 HTML（体积更大）"
                                   IsChecked="{Binding IncludeMedia}"/>
+                        <CheckBox Content="导出媒体时本地离线转写语音（whisper.cpp，缺少工具自动跳过）"
+                                  IsChecked="{Binding VoiceTranscriptionEnabled}" Margin="0,8,0,0"/>
+                        <TextBlock Text="{Binding VoiceTranscriptStatus}" Foreground="Gray" FontSize="11"
+                                   Margin="0,6,0,0" TextWrapping="Wrap"/>
+                        <Button Content="下载 whisper 模型"
+                                Click="DownloadWhisperModel_Click" Padding="10,4" Margin="0,6,0,0"
+                                HorizontalAlignment="Left"/>
+                        <CheckBox Content="导出媒体时对图片做本地离线文字识别（OCR）"
+                                  IsChecked="{Binding OcrEnabled}" Margin="0,8,0,0"/>
+                        <CheckBox Content="导出时生成聊天统计报告（消息量/时段/排行）"
+                                  IsChecked="{Binding StatsReportEnabled}" Margin="0,8,0,0"/>
                         <CheckBox Content="报错时自动上传诊断日志"
                                   IsChecked="{Binding DiagnosticsConsented}" Margin="0,8,0,0"/>
                     </StackPanel>

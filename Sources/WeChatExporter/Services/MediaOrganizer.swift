@@ -42,12 +42,21 @@ enum MediaOrganizer {
         var videoCount = 0
         var otherCount = 0
 
+        // 语音转写侧车文件（*.transcript.txt）与 OCR 侧车文件（*.ocr.txt）跟随归档，避免散落在"文字"夹
+        let transcriptSuffix = VoiceTranscriber.sidecarSuffix
+        let ocrSuffix = ImageOCRService.sidecarSuffix
+
         // 递归收集所有文件
         let files = collectFiles(in: sourceDir)
         for file in files {
             let ext = file.pathExtension.lowercased()
+            let name = file.lastPathComponent
+            let isSidecar = name.hasSuffix(transcriptSuffix) || name.hasSuffix(ocrSuffix)
             let dest: URL
-            if textExts.contains(ext) {
+            if isSidecar {
+                dest = otherDir.appendingPathComponent(name)
+                otherCount += 1
+            } else if textExts.contains(ext) {
                 dest = textDir.appendingPathComponent(file.lastPathComponent)
                 textCount += 1
             } else if imageExts.contains(ext) {

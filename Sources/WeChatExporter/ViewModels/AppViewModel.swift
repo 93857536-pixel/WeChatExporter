@@ -326,6 +326,15 @@ final class AppViewModel: ObservableObject {
                         log: logHandler()
                     )
 
+                    // 语音转文字（本地离线 whisper.cpp，缺工具自动跳过）
+                    if mode.includesMedia && voiceTranscriptionEnabled {
+                        await VoiceTranscriber.transcribeAll(in: tempDir, log: logHandler())
+                    }
+                    // 图片 OCR（本地离线 Vision 框架）
+                    if mode.includesMedia && imageOCREnabled {
+                        await ImageOCRService.ocrAll(in: tempDir, log: logHandler())
+                    }
+
                     switch mode {
                     case .categorized:
                         // 按分类归档：文字 / 图片 / 视频 / 其他
@@ -348,6 +357,16 @@ final class AppViewModel: ObservableObject {
                         try FileManager.default.createDirectory(at: contactDir, withIntermediateDirectories: true)
                         try copyAllArtifacts(from: tempDir, to: contactDir)
                         summary.append("• \(contact.displayName)：\(count) 条（文字 + 媒体文件）")
+                    }
+
+                    // 统计报告（本地聚合 chat.json，生成单文件 HTML）
+                    if statsReportEnabled {
+                        _ = await ChatStatsReport.writeReport(
+                            from: tempDir,
+                            contactName: contact.displayName,
+                            into: base,
+                            log: logHandler()
+                        )
                     }
                 }
 
@@ -611,6 +630,30 @@ final class AppViewModel: ObservableObject {
     var diagnosticsConsented: Bool {
         get { DiagnosticUploader.isConsented }
         set { DiagnosticUploader.setConsented(newValue) }
+    }
+
+    /// 语音转文字开关（设置面板绑定，默认开启；缺工具时导出时自动跳过）
+    @Published var voiceTranscriptionEnabled: Bool = ExportModePreferences.voiceTranscriptionEnabled
+
+    func setVoiceTranscriptionEnabled(_ value: Bool) {
+        voiceTranscriptionEnabled = value
+        ExportModePreferences.voiceTranscriptionEnabled = value
+    }
+
+    /// 图片 OCR 开关（设置面板绑定，默认开启）
+    @Published var imageOCREnabled: Bool = ExportModePreferences.imageOCREnabled
+
+    func setImageOCREnabled(_ value: Bool) {
+        imageOCREnabled = value
+        ExportModePreferences.imageOCREnabled = value
+    }
+
+    /// 统计报告开关（设置面板绑定，默认开启）
+    @Published var statsReportEnabled: Bool = ExportModePreferences.statsReportEnabled
+
+    func setStatsReportEnabled(_ value: Bool) {
+        statsReportEnabled = value
+        ExportModePreferences.statsReportEnabled = value
     }
 
     /// 记录用户对诊断上传条款的选择（条款弹窗按钮调用）

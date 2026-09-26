@@ -475,6 +475,43 @@ enum SingleFileExporter {
       cursor: zoom-in;
     }
     .media img:active, .media .chat-img:active { transform: scale(1.01); }
+    .voice-transcript {
+      margin-top: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: rgba(0, 245, 255, 0.06);
+      border: 1px solid rgba(0, 245, 255, 0.22);
+      font-size: 13px;
+    }
+    .voice-transcript summary {
+      cursor: pointer;
+      color: var(--cyan);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      user-select: none;
+    }
+    .ocr-transcript {
+      margin-top: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: rgba(123, 97, 255, 0.07);
+      border: 1px solid rgba(123, 97, 255, 0.28);
+      font-size: 13px;
+    }
+    .ocr-transcript summary {
+      cursor: pointer;
+      color: #c4b5ff;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      user-select: none;
+    }
+    .transcript-text {
+      margin-top: 8px;
+      line-height: 1.6;
+      color: rgba(240, 248, 255, 0.88);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     .media video, .media audio {
       max-width: 100%;
       margin-top: 8px;
@@ -589,7 +626,11 @@ enum SingleFileExporter {
         if let imageData = ImageExporter.normalizeImageData(data),
            let mime = ImageExporter.sniffImageMIME(imageData) {
             let b64 = imageData.base64EncodedString()
-            return "<img alt=\"图片\" class=\"chat-img\" loading=\"lazy\" src=\"data:\(mime);base64,\(b64)\"/>"
+            var imgHTML = "<img alt=\"图片\" class=\"chat-img\" loading=\"lazy\" src=\"data:\(mime);base64,\(b64)\"/>"
+            if let ocr = ImageOCRService.ocrText(for: fileURL) {
+                imgHTML += "<details class=\"ocr-transcript\"><summary>图片文字（本地离线 OCR）</summary><div class=\"transcript-text\">\(escapeHTML(ocr))</div></details>"
+            }
+            return imgHTML
         }
 
         let b64 = data.base64EncodedString()
@@ -608,11 +649,20 @@ enum SingleFileExporter {
             return "<p class=\"text\">[WXGF 图片转码失败：\(escapeHTML(fileURL.lastPathComponent))。如系统未安装 ffmpeg，macOS 会尝试原生 HEVC 解码，但部分文件仍可能失败]</p>"
         case "mp3", "m4a", "aac":
             let mime = ext == "mp3" ? "audio/mpeg" : "audio/mp4"
-            return "<audio controls src=\"data:\(mime);base64,\(b64)\"></audio>"
+            var audioHTML = "<audio controls src=\"data:\(mime);base64,\(b64)\"></audio>"
+            if let transcript = VoiceTranscriber.transcript(for: fileURL), !transcript.isEmpty {
+                audioHTML += "<details class=\"voice-transcript\" open><summary>语音转文字（本地离线）</summary><div class=\"transcript-text\">\(escapeHTML(transcript))</div></details>"
+            }
+            return audioHTML
         case "mp4", "mov":
             return "<video controls src=\"data:video/mp4;base64,\(b64)\"></video>"
         case "silk":
-            return "<p class=\"text\">[语音 SILK 格式：\(escapeHTML(fileURL.lastPathComponent))，大小 \(data.count) 字节]</p>"
+            var silkHTML = "<p class=\"text\">[语音 SILK 格式：\(escapeHTML(fileURL.lastPathComponent))，大小 \(data.count) 字节]"
+            if let transcript = VoiceTranscriber.transcript(for: fileURL), !transcript.isEmpty {
+                silkHTML += "<details class=\"voice-transcript\" open><summary>语音转文字（本地离线）</summary><div class=\"transcript-text\">\(escapeHTML(transcript))</div></details>"
+            }
+            silkHTML += "</p>"
+            return silkHTML
         default:
             return "<p class=\"text\">[附件 \(escapeHTML(fileURL.lastPathComponent))，大小 \(data.count) 字节]</p>"
         }

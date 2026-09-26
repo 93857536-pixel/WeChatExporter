@@ -212,6 +212,78 @@ private struct ExportSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // 语音转文字
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "waveform.and.mic")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("语音转文字")
+                            .font(.headline)
+                    }
+
+                    Toggle("导出媒体时本地离线转写语音（whisper.cpp）", isOn: Binding(
+                        get: { model.voiceTranscriptionEnabled },
+                        set: { model.setVoiceTranscriptionEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("仅在有媒体导出时生效；需要本机安装 whisper.cpp（whisper-cli）与模型。缺少工具时自动跳过，不影响导出。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 图片 OCR
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "text.magnifyingglass")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("图片 OCR")
+                            .font(.headline)
+                    }
+
+                    Toggle("导出媒体时对图片做本地离线文字识别", isOn: Binding(
+                        get: { model.imageOCREnabled },
+                        set: { model.setImageOCREnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("使用 macOS 系统 Vision 框架，离线识别截图/图片中的文字，结果以 .ocr.txt 侧车文件保存，并展示在 HTML 中。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 统计报告
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "chart.bar")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("统计报告")
+                            .font(.headline)
+                    }
+
+                    Toggle("导出时生成聊天统计报告（消息量/时段/排行）", isOn: Binding(
+                        get: { model.statsReportEnabled },
+                        set: { model.setStatsReportEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("本地聚合 chat.json，生成单文件 HTML 统计报告（发言排行、24 小时活跃分布、月度趋势、媒体构成），随导出保存在同一目录。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // 诊断日志上传
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {

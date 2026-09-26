@@ -43,6 +43,9 @@ enum ExportMode: String, CaseIterable, Identifiable {
 enum ExportModePreferences {
     private enum Keys {
         static let mode = "export.mode"
+        static let voiceTranscription = "export.voiceTranscription"
+        static let imageOCR = "export.imageOCR"
+        static let statsReport = "export.statsReport"
     }
 
     static var mode: ExportMode {
@@ -52,6 +55,39 @@ enum ExportModePreferences {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: Keys.mode)
+        }
+    }
+
+    /// 导出媒体时是否顺带做本地语音转文字（whisper.cpp，默认开启；缺少工具时自动跳过）
+    static var voiceTranscriptionEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.voiceTranscription) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.voiceTranscription)
+        }
+    }
+
+    /// 导出媒体时是否顺带做图片 OCR（Vision 框架，默认开启）
+    static var imageOCREnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.imageOCR) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.imageOCR)
+        }
+    }
+
+    /// 导出时是否顺带生成统计报告（消息量/时段/排行，默认开启）
+    static var statsReportEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.statsReport) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.statsReport)
         }
     }
 }

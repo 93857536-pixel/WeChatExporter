@@ -168,6 +168,11 @@ internal static class SingleFileExporter
         .media{margin-top:12px}
         .media img,.media .chat-img{max-width:min(100%,440px);border-radius:12px;display:block;border:1px solid rgba(0,245,255,.32);box-shadow:0 0 24px rgba(0,245,255,.18),0 8px 24px rgba(0,0,0,.35);cursor:zoom-in}
         .media video,.media audio{max-width:100%;margin-top:8px;display:block;border-radius:12px;border:1px solid rgba(123,97,255,.28);box-shadow:0 0 20px rgba(123,97,255,.15);background:var(--glass-strong)}
+        .voice-transcript{margin-top:8px;padding:10px 14px;border-radius:10px;background:rgba(0,245,255,.06);border:1px solid rgba(0,245,255,.22);font-size:13px}
+        .voice-transcript summary{cursor:pointer;color:var(--cyan);font-size:12px;letter-spacing:.04em;user-select:none}
+        .ocr-transcript{margin-top:8px;padding:10px 14px;border-radius:10px;background:rgba(123,97,255,.07);border:1px solid rgba(123,97,255,.28);font-size:13px}
+        .ocr-transcript summary{cursor:pointer;color:#c4b5ff;font-size:12px;letter-spacing:.04em;user-select:none}
+        .transcript-text{margin-top:8px;line-height:1.6;color:rgba(240,248,255,.88);white-space:pre-wrap;word-break:break-word}
         footer{text-align:center;color:var(--subtext);font-size:12px;padding:28px 16px 36px;border-top:1px solid rgba(123,97,255,.15);background:linear-gradient(180deg,transparent,rgba(8,14,36,.55))}
         .footer-brand{color:var(--cyan);font-weight:600;text-shadow:0 0 10px rgba(0,245,255,.35)}
         .footer-dot{margin:0 8px;opacity:.5}
@@ -261,24 +266,49 @@ internal static class SingleFileExporter
         if (normalized is not null && ImageExporter.SniffImageMime(normalized) is { } mime)
         {
             var b64 = Convert.ToBase64String(normalized);
-            return $"""<img alt="图片" class="chat-img" loading="lazy" src="data:{mime};base64,{b64}"/>""";
+            return ImageHtml($"""<img alt="图片" class="chat-img" loading="lazy" src="data:{mime};base64,{b64}"/>""", filePath);
         }
 
         var rawB64 = Convert.ToBase64String(data);
         return ext switch
         {
-            "jpg" or "jpeg" => $"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/jpeg;base64,{rawB64}"/>""",
-            "png" => $"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/png;base64,{rawB64}"/>""",
-            "gif" => $"""<img alt="表情" class="chat-img" loading="lazy" src="data:image/gif;base64,{rawB64}"/>""",
-            "webp" => $"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/webp;base64,{rawB64}"/>""",
+            "jpg" or "jpeg" => ImageHtml($"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/jpeg;base64,{rawB64}"/>""", filePath),
+            "png" => ImageHtml($"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/png;base64,{rawB64}"/>""", filePath),
+            "gif" => ImageHtml($"""<img alt="表情" class="chat-img" loading="lazy" src="data:image/gif;base64,{rawB64}"/>""", filePath),
+            "webp" => ImageHtml($"""<img alt="图片" class="chat-img" loading="lazy" src="data:image/webp;base64,{rawB64}"/>""", filePath),
             "dat" => $"""<p class="text">[加密图片未能解密：{EscapeHtml(Path.GetFileName(filePath))}]</p>""",
-            "mp3" => $"""<audio controls src="data:audio/mpeg;base64,{rawB64}"></audio>""",
-            "m4a" or "aac" => $"""<audio controls src="data:audio/mp4;base64,{rawB64}"></audio>""",
+            "mp3" => AudioHtml("audio/mpeg", rawB64, filePath),
+            "m4a" or "aac" => AudioHtml("audio/mp4", rawB64, filePath),
             "mp4" or "mov" => $"""<video controls src="data:video/mp4;base64,{rawB64}"></video>""",
             "wxgf" => $"""<p class="text">[WXGF 图片转码失败：{EscapeHtml(Path.GetFileName(filePath))}。如系统未安装 ffmpeg，Windows 可能仍无法解码]</p>""",
-            "silk" => $"""<p class="text">[语音 SILK：{EscapeHtml(Path.GetFileName(filePath))}，{data.Length} 字节]</p>""",
+            "silk" => VoiceTranscriptHtml($"""<p class="text">[语音 SILK：{EscapeHtml(Path.GetFileName(filePath))}，{data.Length} 字节]""", filePath),
             _ => $"""<p class="text">[附件 {EscapeHtml(Path.GetFileName(filePath))}，{data.Length} 字节]</p>"""
         };
+    }
+
+    /// <summary>音频标签 + 本地离线转写文本（如有）。</summary>
+    private static string AudioHtml(string mime, string rawB64, string filePath)
+    {
+        var audio = $"""<audio controls src="data:{mime};base64,{rawB64}"></audio>""";
+        return VoiceTranscriptHtml(audio, filePath);
+    }
+
+    /// <summary>图片标签 + 本地离线 OCR 文本（如有）。</summary>
+    private static string ImageHtml(string imgHtml, string filePath)
+    {
+        var ocr = ImageOcrService.OcrTextFor(filePath);
+        if (string.IsNullOrWhiteSpace(ocr))
+            return imgHtml;
+        return $"""{imgHtml}<details class="ocr-transcript"><summary>图片文字（本地离线 OCR）</summary><div class="transcript-text">{EscapeHtml(ocr!.Trim())}</div></details>""";
+    }
+
+    /// <summary>若语音存在转写侧车文件，追加「语音转文字」折叠块。</summary>
+    private static string VoiceTranscriptHtml(string mediaHtml, string audioFilePath)
+    {
+        var transcript = VoiceTranscriber.TranscriptFor(audioFilePath);
+        if (string.IsNullOrWhiteSpace(transcript))
+            return mediaHtml;
+        return $"""{mediaHtml}<details class="voice-transcript" open><summary>语音转文字（本地离线）</summary><div class="transcript-text">{EscapeHtml(transcript!.Trim())}</div></details>""";
     }
 
     private static List<MessageRow> ParseMessages(string jsonPath)

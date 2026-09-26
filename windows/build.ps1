@@ -32,6 +32,15 @@ dotnet @publishArgs
 Write-Host "打包内置 wx-cli…"
 & (Join-Path $Root "scripts\bundle_wx_cli.ps1") -DestDir $OutDir -WxCliVersion $WxCliVersion
 
+Write-Host "打包内置 SILK 解码器(silk2wav.exe,语音转文字用)…"
+$Silk2WavExe = Join-Path $PSScriptRoot "..\vendor\tools\silk\silk2wav.exe"
+$Silk2WavExe = [System.IO.Path]::GetFullPath($Silk2WavExe)
+if (Test-Path $Silk2WavExe) {
+    Copy-Item $Silk2WavExe (Join-Path $OutDir "silk2wav.exe") -Force
+} else {
+    Write-Warning "vendor\tools\silk\silk2wav.exe 不存在，语音 SILK 转文字功能不可用"
+}
+
 if (Test-Path $DistDir) { Remove-Item $DistDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 Copy-Item (Join-Path $OutDir "*") $DistDir -Recurse -Force
