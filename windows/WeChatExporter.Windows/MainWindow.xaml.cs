@@ -74,6 +74,26 @@ public partial class MainWindow : Window
 
     private async void DownloadWhisperModel_Click(object sender, RoutedEventArgs e)
         => await _viewModel.DownloadWhisperModelAsync();
+
+    // MARK: - v2.19 新功能事件
+
+    private void Search_Click(object sender, RoutedEventArgs e)
+        => _viewModel.RunSearch();
+
+    private void RebuildIndex_Click(object sender, RoutedEventArgs e)
+        => _viewModel.RebuildSearchIndex();
+
+    private void SearchResultsList_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (SearchResultsList.SelectedItem is SearchIndexService.Hit hit)
+            _viewModel.OpenSearchHit(hit);
+    }
+
+    private void InstallAutoSync_Click(object sender, RoutedEventArgs e)
+        => _viewModel.InstallAutoSyncTask();
+
+    private void UninstallAutoSync_Click(object sender, RoutedEventArgs e)
+        => _viewModel.UninstallAutoSyncTask();
 }
 
 public sealed class InverseBooleanConverter : IValueConverter

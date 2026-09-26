@@ -79,7 +79,7 @@ public static class ChatStatsReport
             if (ts is > 0)
             {
                 var unix = ts.Value;
-                if (unix > 10_000_000_000_000L) unix /= 1000; // 毫秒
+                if (unix > 100_000_000_000L) unix /= 1000; // 毫秒
                 var utc = DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
                 var local = TimeZoneInfo.ConvertTimeFromUtc(utc, Shanghai);
                 timestamps.Add(local);

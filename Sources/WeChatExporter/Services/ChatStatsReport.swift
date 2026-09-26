@@ -220,7 +220,7 @@ enum ChatStatsReport {
     }
 
     private static func dateFromTimestamp(_ ts: Int) -> Date? {
-        let seconds = ts > 10_000_000_000_000 ? ts / 1000 : ts
+        let seconds = ts > 100_000_000_000 ? ts / 1000 : ts
         return Date(timeIntervalSince1970: TimeInterval(seconds))
     }
 

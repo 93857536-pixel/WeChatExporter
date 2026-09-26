@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WeChatExporter · Linux</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-scene" aria-hidden="true">
+    <div class="aurora aurora-a"></div>
+    <div class="aurora aurora-b"></div>
+    <div class="aurora aurora-c"></div>
+    <div class="grid-floor"></div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">WX</div>
+      <div>
+        <h1>WeChatExporter <span class="tag">Linux</span></h1>
+        <p class="sub">读取已解密微信 SQLite 目录 · 导出为 HTML / TXT / JSON / CSV</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="btn-settings" class="btn btn-ghost">⚙ 设置</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- 数据源 -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>① 数据源</h2>
+        <span id="status-text" class="status">就绪</span>
+      </div>
+      <div class="row">
+        <input id="data-dir" class="input" type="text" placeholder="已解密的微信数据库目录（含 contact/ session/ message/ 子目录）" />
+        <button id="btn-browse" class="btn btn-cyan">浏览…</button>
+        <button id="btn-load" class="btn btn-purple">加载会话</button>
+      </div>
+      <p class="hint">数据源结构：<code>contact/contact.db</code> · <code>session/session.db</code> · <code>message/message_*.db</code>（表 <code>Msg_&lt;md5&gt;</code>）。与 macOS 原生后端同口径。</p>
+    </section>
+
+    <!-- 会话列表 -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>② 选择会话 <span id="contact-count" class="count"></span></h2>
+        <div class="row tight">
+          <input id="contact-search" class="input input-sm" type="text" placeholder="搜索会话…" />
+          <button id="btn-all" class="btn btn-ghost">全选</button>
+          <button id="btn-none" class="btn btn-ghost">全不选</button>
+        </div>
+      </div>
+      <div id="contact-list" class="contact-list">
+        <p class="empty">尚未加载会话。请先选择数据源并点击「加载会话」。</p>
+      </div>
+    </section>
+
+    <!-- 导出 -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>③ 导出</h2>
+      </div>
+      <div class="row">
+        <input id="export-dir" class="input" type="text" placeholder="导出目录（默认 ~/Downloads/微信聊天记录导出）" />
+        <button id="btn-export" class="btn btn-cyan btn-lg">导出选中</button>
+      </div>
+      <div id="progress" class="progress hidden">
+        <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+        <span id="progress-label"></span>
+      </div>
+      <div id="summary" class="summary"></div>
+    </section>
+
+    <!-- 日志 -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>日志</h2>
+        <button id="btn-clear-log" class="btn btn-ghost">清空</button>
+      </div>
+      <pre id="log" class="log"></pre>
+    </section>
+  </main>
+
+  <!-- 设置弹层 -->
+  <div id="settings-overlay" class="overlay hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>导出设置</h2>
+        <button id="btn-close-settings" class="btn btn-ghost">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="group">
+          <h3>基础</h3>
+          <label class="switch"><input type="checkbox" id="set-stats" /><span>统计报告（HTML）</span></label>
+          <label class="switch"><input type="checkbox" id="set-index" /><span>目录导航页 index.html</span></label>
+          <label class="switch"><input type="checkbox" id="set-search" /><span>全文搜索索引 wce-search.sqlite</span></label>
+        </div>
+        <div class="group">
+          <h3>水印</h3>
+          <label class="switch"><input type="checkbox" id="set-watermark" /><span>导出水印</span></label>
+          <label class="field"><span>水印文字</span><input type="text" id="set-watermark-text" class="input" /></label>
+        </div>
+        <div class="group">
+          <h3>脱敏导出</h3>
+          <label class="switch"><input type="checkbox" id="set-anon" /><span>名称伪化</span></label>
+          <label class="switch"><input type="checkbox" id="set-anon-pii" /><span>模糊化手机号/身份证/邮箱</span></label>
+          <label class="switch"><input type="checkbox" id="set-anon-keep" /><span>保留映射文件（可逆）</span></label>
+        </div>
+        <div class="group">
+          <h3>过滤导出</h3>
+          <label class="switch"><input type="checkbox" id="set-filter" /><span>启用过滤</span></label>
+          <label class="field"><span>起始日期</span><input type="date" id="set-filter-from" class="input" /></label>
+          <label class="field"><span>结束日期</span><input type="date" id="set-filter-to" class="input" /></label>
+          <label class="field"><span>关键词（逗号分隔）</span><input type="text" id="set-filter-kw" class="input" /></label>
+        </div>
+        <div class="group">
+          <h3>报告 / 日历</h3>
+          <label class="switch"><input type="checkbox" id="set-annual" /><span>年度可视化报告</span></label>
+          <label class="switch"><input type="checkbox" id="set-calendar" /><span>日历事件提取（.ics / .json）</span></label>
+        </div>
+        <div class="group">
+          <h3>定时增量导出（systemd user timer）</h3>
+          <div class="row tight">
+            <label class="field grow"><span>间隔（分钟）</span><input type="number" id="set-autosync-interval" class="input" min="5" value="60" /></label>
+            <button id="btn-install-timer" class="btn btn-purple">安装定时任务</button>
+            <button id="btn-uninstall-timer" class="btn btn-ghost">卸载</button>
+          </div>
+          <p id="timer-status" class="hint"></p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="btn-save-settings" class="btn btn-cyan">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>

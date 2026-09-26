@@ -41,6 +41,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ContactsView.Filter = FilterContact;
         IsRunningAsAdmin = PlatformHelper.IsRunningAsAdministrator();
         _diagnosticsConsented = DiagnosticUploader.IsConsented;
+        // v2.19 设置项：从 settings.json 恢复（键名与 macOS 完全一致）
+        _searchIndexEnabled = AppSettings.SearchIndexEnabled;
+        _anonEnabled = AppSettings.AnonEnabled;
+        _anonMaskPii = AppSettings.AnonMaskPii;
+        _anonKeepMapping = AppSettings.AnonKeepMapping;
+        _filterEnabled = AppSettings.FilterEnabled;
+        _filterFromDate = AppSettings.FilterFromDate;
+        _filterToDate = AppSettings.FilterToDate;
+        _filterKeywords = AppSettings.FilterKeywords;
+        _annualReportEnabled = AppSettings.AnnualReportEnabled;
+        _calendarExtractEnabled = AppSettings.CalendarExtractEnabled;
+        _autoSyncEnabled = AppSettings.AutoSyncEnabled;
+        _autoSyncIntervalMinutes = AppSettings.AutoSyncIntervalMinutes;
         AppendLog(wxCli.IsBundled ? "使用内置 wx-cli（即装即用）" : "使用系统 wx-cli");
         if (!IsRunningAsAdmin)
             AppendLog("提示：首次「准备数据」建议以管理员身份运行（可点击下方按钮）");
@@ -272,6 +285,291 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Watermark.Text = value;
             OnPropertyChanged();
         }
+    }
+
+    // MARK: - v2.19 新功能设置（SPEC：docs/MULTIPLATFORM_SPEC.md，键名与 macOS 完全一致）
+
+    private bool _searchIndexEnabled = true;
+    private bool _anonEnabled;
+    private bool _anonMaskPii = true;
+    private bool _anonKeepMapping = true;
+    private bool _filterEnabled;
+    private string _filterFromDate = "";
+    private string _filterToDate = "";
+    private string _filterKeywords = "";
+    private bool _annualReportEnabled = true;
+    private bool _calendarExtractEnabled = true;
+    private bool _autoSyncEnabled;
+    private int _autoSyncIntervalMinutes = 60;
+
+    /// <summary>导出时在根目录生成 wce-search.sqlite 全文搜索索引（默认开启）。</summary>
+    public bool SearchIndexEnabled
+    {
+        get => _searchIndexEnabled;
+        set
+        {
+            if (_searchIndexEnabled == value) return;
+            _searchIndexEnabled = value;
+            AppSettings.SearchIndexEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>脱敏导出总开关（默认关闭）。</summary>
+    public bool AnonEnabled
+    {
+        get => _anonEnabled;
+        set
+        {
+            if (_anonEnabled == value) return;
+            _anonEnabled = value;
+            AppSettings.AnonEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>脱敏时是否同时模糊化 PII（手机号/身份证/邮箱，默认开启）。</summary>
+    public bool AnonMaskPii
+    {
+        get => _anonMaskPii;
+        set
+        {
+            if (_anonMaskPii == value) return;
+            _anonMaskPii = value;
+            AppSettings.AnonMaskPii = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>脱敏后是否保留映射文件（可逆；关闭=导出后销毁）。</summary>
+    public bool AnonKeepMapping
+    {
+        get => _anonKeepMapping;
+        set
+        {
+            if (_anonKeepMapping == value) return;
+            _anonKeepMapping = value;
+            AppSettings.AnonKeepMapping = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>过滤导出总开关（默认关闭）。</summary>
+    public bool FilterEnabled
+    {
+        get => _filterEnabled;
+        set
+        {
+            if (_filterEnabled == value) return;
+            _filterEnabled = value;
+            AppSettings.FilterEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>过滤起始日期 yyyy-MM-dd（含；空=不限）。</summary>
+    public string FilterFromDate
+    {
+        get => _filterFromDate;
+        set
+        {
+            if (_filterFromDate == value) return;
+            _filterFromDate = value;
+            AppSettings.FilterFromDate = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>过滤结束日期 yyyy-MM-dd（含；空=不限）。</summary>
+    public string FilterToDate
+    {
+        get => _filterToDate;
+        set
+        {
+            if (_filterToDate == value) return;
+            _filterToDate = value;
+            AppSettings.FilterToDate = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>过滤关键词（逗号分隔，不区分大小写；空=不过滤内容）。</summary>
+    public string FilterKeywords
+    {
+        get => _filterKeywords;
+        set
+        {
+            if (_filterKeywords == value) return;
+            _filterKeywords = value;
+            AppSettings.FilterKeywords = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>生成年度可视化报告 HTML（默认开启）。</summary>
+    public bool AnnualReportEnabled
+    {
+        get => _annualReportEnabled;
+        set
+        {
+            if (_annualReportEnabled == value) return;
+            _annualReportEnabled = value;
+            AppSettings.AnnualReportEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>提取日历事件 .ics/.json（默认开启）。</summary>
+    public bool CalendarExtractEnabled
+    {
+        get => _calendarExtractEnabled;
+        set
+        {
+            if (_calendarExtractEnabled == value) return;
+            _calendarExtractEnabled = value;
+            AppSettings.CalendarExtractEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>定时增量导出总开关（默认关闭）。</summary>
+    public bool AutoSyncEnabled
+    {
+        get => _autoSyncEnabled;
+        set
+        {
+            if (_autoSyncEnabled == value) return;
+            _autoSyncEnabled = value;
+            AppSettings.AutoSyncEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>定时间隔分钟数（默认 60，最小 5）。</summary>
+    public int AutoSyncIntervalMinutes
+    {
+        get => _autoSyncIntervalMinutes;
+        set
+        {
+            if (_autoSyncIntervalMinutes == value) return;
+            _autoSyncIntervalMinutes = value;
+            AppSettings.AutoSyncIntervalMinutes = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>定时任务当前是否已安装（schtasks），展示用文案。</summary>
+    public string AutoSyncInstalled => AutoSyncScheduler.IsInstalled ? "已安装" : "未安装";
+
+    /// <summary>上次定时运行时间（ISO 本地）。</summary>
+    public string AutoSyncLastRun => AppSettings.AutoSyncLastRun;
+
+    /// <summary>安装定时任务（schtasks）：把当前选中的会话子集与间隔写入。</summary>
+    public void InstallAutoSyncTask()
+    {
+        var idsJson = AppSettings.AutoSyncContactIDs;
+        if (string.IsNullOrWhiteSpace(idsJson) || idsJson == "[]")
+        {
+            idsJson = System.Text.Json.JsonSerializer.Serialize(SelectedContacts.Select(c => c.Id).ToList());
+        }
+        AppSettings.AutoSyncContactIDs = idsJson;
+        var dir = string.IsNullOrWhiteSpace(AppSettings.AutoSyncExportDir) ? ExportPath : AppSettings.AutoSyncExportDir;
+        AppSettings.AutoSyncExportDir = dir;
+        var ok = AutoSyncScheduler.Install(Math.Max(5, AutoSyncIntervalMinutes), dir, idsJson, AppendLog);
+        AppendLog(ok ? $"定时增量导出已安装（每 {Math.Max(5, AutoSyncIntervalMinutes)} 分钟）" : "定时任务安装失败，详见日志");
+        OnPropertyChanged(nameof(AutoSyncInstalled));
+    }
+
+    public void UninstallAutoSyncTask()
+    {
+        AutoSyncScheduler.Uninstall(AppendLog);
+        OnPropertyChanged(nameof(AutoSyncInstalled));
+    }
+
+    // MARK: - 搜索面板（SPEC §1）
+
+    private string _searchKeyword = "";
+    private bool _searchIndexAvailable;
+
+    /// <summary>搜索关键词（绑定搜索框）。</summary>
+    public string SearchKeyword
+    {
+        get => _searchKeyword;
+        set
+        {
+            if (_searchKeyword == value) return;
+            _searchKeyword = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>搜索命中结果。</summary>
+    public ObservableCollection<SearchIndexService.Hit> SearchHits { get; } = [];
+
+    /// <summary>搜索索引是否可用（上次运行搜索时判定）。</summary>
+    public bool SearchIndexAvailable
+    {
+        get => _searchIndexAvailable;
+        private set
+        {
+            if (_searchIndexAvailable == value) return;
+            _searchIndexAvailable = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>执行全文搜索（最近一次导出目录的 wce-search.sqlite）。</summary>
+    public void RunSearch()
+    {
+        var kw = SearchKeyword.Trim();
+        SearchHits.Clear();
+        if (kw.Length == 0) return;
+        var dir = string.IsNullOrWhiteSpace(AppSettings.LastExportDir) ? ExportPath : AppSettings.LastExportDir;
+        var indexPath = Path.Combine(dir, SearchIndexService.FileName);
+        var db = SearchIndexService.Open(indexPath);
+        if (db is null)
+        {
+            SearchIndexAvailable = false;
+            AppendLog($"搜索索引不存在（{SearchIndexService.FileName}），请先导出并开启「搜索索引」");
+            return;
+        }
+        using (db)
+        {
+            SearchIndexAvailable = true;
+            foreach (var hit in SearchIndexService.Query(db, kw, 200))
+                SearchHits.Add(hit);
+            AppendLog($"全文搜索「{kw}」：{SearchHits.Count} 条命中");
+        }
+    }
+
+    /// <summary>定位命中消息所在会话的 chat.txt（用系统程序打开）。</summary>
+    public void OpenSearchHit(SearchIndexService.Hit hit)
+    {
+        var dir = string.IsNullOrWhiteSpace(AppSettings.LastExportDir) ? ExportPath : AppSettings.LastExportDir;
+        var baseDir = dir;
+        var candidates = new[]
+        {
+            Path.Combine(baseDir, hit.Chat, "chat.txt"),
+            Path.Combine(baseDir, hit.Chat, "文字", "chat.txt"),
+        };
+        foreach (var c in candidates)
+        {
+            if (File.Exists(c))
+            {
+                ProcessHelper.OpenFolder(c);
+                return;
+            }
+        }
+        ProcessHelper.OpenFolder(baseDir);
+    }
+
+    /// <summary>重建搜索索引（不导出）。</summary>
+    public void RebuildSearchIndex()
+    {
+        var dir = string.IsNullOrWhiteSpace(AppSettings.LastExportDir) ? ExportPath : AppSettings.LastExportDir;
+        var n = SearchIndexService.Build(dir, AppendLog);
+        if (n == 0) SearchIndexAvailable = false;
+        RunSearch();
     }
 
     /// <summary>解密 .wxenc 加密导出包到导出目录</summary>
@@ -601,6 +899,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                             IncrementalExport.SaveCursor(contact.Id, ExportPath, IncrementalExport.MaxTimestamp(tempDir));
                         }
                     }
+                    // v2.19：把文字产物（chat.json/txt/csv）复制到导出根目录/<会话名>/，
+                    // 供全文搜索索引 / 脱敏 / 过滤 / 年度报告 / 日历提取使用（与 macOS textOnly 布局同口径）
+                    var sessionDir = Path.Combine(ExportPath, ExportArtifacts.SanitizeDirName(contact.DisplayName));
+                    ExportArtifacts.CopyTextArtifacts(tempDir, sessionDir);
+
                     var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
                     summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
                     // 统计报告（本地聚合 chat.json，生成单文件 HTML）
@@ -636,11 +939,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ExportIndexBuilder.WriteIndex(ExportPath, AppendLog);
             }
 
+            // v2.19 全局后处理管线（SPEC §3 顺序：过滤 → 脱敏 → 搜索索引 → 年报/日历 → 水印）
+            if (FilterEnabled)
+            {
+                _ = ExportFilterService.Apply(ExportPath, FilterFromDate, FilterToDate, FilterKeywords, AppendLog);
+            }
+            if (AnonEnabled)
+            {
+                var names = AnonymizationService.CollectNames(ExportPath);
+                _ = AnonymizationService.Anonymize(ExportPath, names,
+                    new AnonymizationService.Settings(AnonMaskPii, AnonKeepMapping), AppendLog);
+                summary.Add(AnonKeepMapping
+                    ? "🕶 已脱敏（映射文件在导出根目录，可逆）"
+                    : "🕶 已脱敏（不可逆，映射已销毁）");
+            }
+            if (SearchIndexEnabled)
+            {
+                _ = SearchIndexService.Build(ExportPath, AppendLog);
+            }
+            if (AnnualReportEnabled)
+            {
+                _ = AnnualReportService.Write(ExportPath, AppendLog);
+            }
+            if (CalendarExtractEnabled)
+            {
+                _ = CalendarExtractService.Extract(ExportPath, AppendLog);
+            }
+
             // 导出水印：兜底扫描导出目录全部 HTML（幂等，已注入的跳过），缺水印层的补上
             if (WatermarkEnabled)
             {
                 Watermark.ApplyToDirectory(ExportPath, AppendLog);
             }
+
+            // 记录最近导出目录（搜索面板 / wce CLI 用它定位索引）
+            AppSettings.LastExportDir = ExportPath;
 
             // 加密导出（密码非空 → 整体加密为 .wxenc 并删除明文目录）
             if (!string.IsNullOrEmpty(ExportPassword))

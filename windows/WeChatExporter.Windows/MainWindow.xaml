@@ -123,8 +123,86 @@
                                  FontSize="12" Margin="0,6,0,0"/>
                         <TextBlock Text="HTML 产物（单文件 / 统计 / 目录 / 表情包画廊）会平铺斜纹水印；EPUB 加版权页脚；文档版（打印版 HTML）平铺深色水印。关闭开关后导出全部无水印。"
                                    Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        <Separator Margin="0,10,0,6"/>
+                        <TextBlock Text="v2.19 新功能" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                        <CheckBox Content="生成全文搜索索引 wce-search.sqlite（搜索面板 / wce CLI 用）"
+                                  IsChecked="{Binding SearchIndexEnabled}" Margin="0,6,0,0"/>
+                        <CheckBox Content="生成年度可视化报告（年度报告_年份.html）"
+                                  IsChecked="{Binding AnnualReportEnabled}" Margin="0,6,0,0"/>
+                        <CheckBox Content="提取日历事件（日历事件.ics / 日历事件.json）"
+                                  IsChecked="{Binding CalendarExtractEnabled}" Margin="0,6,0,0"/>
+                        <CheckBox Content="脱敏导出：名称代号化（用户A/B/…）+ 可选 PII 模糊化"
+                                  IsChecked="{Binding AnonEnabled}" Margin="0,6,0,0"/>
+                        <CheckBox Content="　└ 同时模糊化手机号/身份证/邮箱（138****5678 形）"
+                                  IsChecked="{Binding AnonMaskPii}" Margin="0,2,0,0" IsEnabled="{Binding AnonEnabled}"/>
+                        <CheckBox Content="　└ 保留映射文件 anonymization-map.json（取消则导出后销毁，不可逆）"
+                                  IsChecked="{Binding AnonKeepMapping}" Margin="0,2,0,0" IsEnabled="{Binding AnonEnabled}"/>
+                        <CheckBox Content="过滤导出：时间区间 + 关键词（过滤先于脱敏/索引/报告）"
+                                  IsChecked="{Binding FilterEnabled}" Margin="0,6,0,0"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0" IsEnabled="{Binding FilterEnabled}">
+                            <TextBlock Text="起" VerticalAlignment="Center" Foreground="Gray" FontSize="11"/>
+                            <TextBox Text="{Binding FilterFromDate, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="100" Margin="4,0,8,0" FontSize="12" ToolTip="起始日期 yyyy-MM-dd（含，空=不限）"/>
+                            <TextBlock Text="止" VerticalAlignment="Center" Foreground="Gray" FontSize="11"/>
+                            <TextBox Text="{Binding FilterToDate, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="100" Margin="4,0,8,0" FontSize="12" ToolTip="结束日期 yyyy-MM-dd（含，空=不限）"/>
+                        </StackPanel>
+                        <TextBox Text="{Binding FilterKeywords, UpdateSourceTrigger=PropertyChanged}"
+                                 Margin="0,4,0,0" FontSize="12"
+                                 ToolTip="过滤关键词（逗号分隔，不区分大小写；空=不过滤内容）"/>
                         <CheckBox Content="报错时自动上传诊断日志"
                                   IsChecked="{Binding DiagnosticsConsented}" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="全文搜索（v2.19）" Margin="0,0,0,16" Padding="12">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding SearchKeyword, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="300" Padding="6,4" ToolTip="搜索最近一次导出目录的 wce-search.sqlite 索引"/>
+                            <Button Content="搜索" Padding="10,4" Margin="8,0,0,0" Click="Search_Click"/>
+                            <Button Content="重建索引" Padding="10,4" Margin="8,0,0,0" Click="RebuildIndex_Click"/>
+                        </StackPanel>
+                        <TextBlock Text="搜索上次导出的全部会话（FTS5 全文检索）；双击结果打开对应会话的 chat.txt。"
+                                   Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        <ListBox x:Name="SearchResultsList" ItemsSource="{Binding SearchHits}"
+                                 MaxHeight="180" Margin="0,8,0,0" MouseDoubleClick="SearchResultsList_MouseDoubleClick">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,3">
+                                        <TextBlock FontSize="12">
+                                            <Run Text="{Binding TimeText}" Foreground="Gray"/><Run Text="  "/>
+                                            <Run Text="{Binding Chat}" FontWeight="SemiBold"/><Run Text=" · "/>
+                                            <Run Text="{Binding Sender}" Foreground="#07C35F"/>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Snippet}" Foreground="Gray" FontSize="11"
+                                                   TextWrapping="Wrap" MaxHeight="40"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="定时增量导出（v2.19）" Margin="0,0,0,16" Padding="12">
+                    <StackPanel>
+                        <CheckBox Content="启用定时增量导出（无人值守，每 N 分钟同步新增消息）"
+                                  IsChecked="{Binding AutoSyncEnabled}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <TextBlock Text="间隔（分钟，≥5）：" VerticalAlignment="Center" Foreground="Gray" FontSize="11"/>
+                            <TextBox Text="{Binding AutoSyncIntervalMinutes, UpdateSourceTrigger=PropertyChanged}"
+                                     Width="60" FontSize="12"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Content="安装定时任务" Padding="10,6" Margin="0,0,8,0" Click="InstallAutoSync_Click"/>
+                            <Button Content="卸载定时任务" Padding="10,6" Click="UninstallAutoSync_Click"/>
+                        </StackPanel>
+                        <TextBlock Margin="0,8,0,0" Foreground="Gray" FontSize="11" TextWrapping="Wrap">
+                            <Run Text="状态："/><Run Text="{Binding AutoSyncInstalled, Mode=OneWay}" FontWeight="SemiBold"/>
+                            <Run Text="　·　上次运行："/><Run Text="{Binding AutoSyncLastRun, Mode=OneWay}"/>
+                        </TextBlock>
+                        <TextBlock Text="用 Windows 计划任务（schtasks）每 N 分钟运行一次 wce --auto-sync；只导出新增，无新增静默结束。日志：%LocalAppData%/WCE/autosync.log。"
+                                   Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </GroupBox>
 

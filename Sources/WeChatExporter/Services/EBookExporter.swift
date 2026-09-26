@@ -61,7 +61,7 @@ enum EBookExporter {
             let ts = intField(source, keys: ["create_time", "timestamp"])
                 ?? intField(row, keys: ["create_time", "timestamp"])
             let date: Date? = ts.map { value in
-                let seconds = value > 10_000_000_000_000 ? value / 1000 : value  // 毫秒/秒自适应
+                let seconds = value > 100_000_000_000 ? value / 1000 : value  // 毫秒/秒自适应
                 return Date(timeIntervalSince1970: TimeInterval(seconds))
             }
             let sender = stringField(row, keys: ["sender_display_name", "sender", "from", "display_name"])
