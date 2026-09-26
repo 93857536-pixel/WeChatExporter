@@ -30,6 +30,7 @@ Get the latest build from **[GitHub Releases](https://github.com/93857536-pixel/
 - **Chat statistics report** (both platforms): single-file HTML report (message counts, top senders, 24-hour activity, monthly trend, media breakdown), generated locally, no external dependencies
 - **Incremental export** (both platforms, off by default): remembers a timestamp cursor per "contact + export directory"; next export keeps only new messages, contacts with no new messages are skipped
 - **Index page + full-text search** (both platforms): generates `index.html` in the export directory with a file list and a keyword search box (embedded text data, fully offline)
+- **E-book / document export** (both platforms): builds readable documents directly from `chat.json` — zero dependencies, fully offline. EPUB (`Contact_chat.epub`, hand-rolled stored-ZIP, grouped by month with sender + timestamp) plus a document edition (A4 PDF on macOS via CoreText/PingFang SC; A4 print-optimized HTML on Windows, printable or save-as-PDF)
 - Export TXT / CSV / JSON
 
 ## Requirements
