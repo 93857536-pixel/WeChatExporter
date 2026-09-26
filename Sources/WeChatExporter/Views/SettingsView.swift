@@ -388,6 +388,36 @@ private struct ExportSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // 导出水印
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "drop.halffull")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("导出水印")
+                            .font(.headline)
+                    }
+
+                    Toggle("在导出产物上平铺视觉水印（关闭即无水印版本）", isOn: Binding(
+                        get: { model.watermarkEnabled },
+                        set: { model.watermarkEnabled = $0 }
+                    ))
+
+                    TextField("水印文字（默认：林琝淏科技集团有限公司）",
+                              text: Binding(
+                        get: { model.watermarkText },
+                        set: { model.watermarkText = $0 }
+                    ))
+                        .textFieldStyle(.roundedBorder)
+
+                    Text("HTML 产物（单文件 / 统计 / 目录 / 表情包画廊）会平铺斜纹水印；EPUB 加版权页脚；PDF 每页盖对角水印。关闭开关后导出全部无水印。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // wx-cli 设置（用户自带）
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {

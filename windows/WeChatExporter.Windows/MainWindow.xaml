@@ -116,6 +116,13 @@
                                   IsChecked="{Binding EbookEpubEnabled}" Margin="0,8,0,0"/>
                         <CheckBox Content="导出时生成文档版（A4 打印版，浏览器可打印/另存 PDF）"
                                   IsChecked="{Binding EbookDocumentEnabled}" Margin="0,8,0,0"/>
+                        <CheckBox Content="在导出产物上平铺视觉水印（关闭即无水印版本）"
+                                  IsChecked="{Binding WatermarkEnabled}" Margin="0,8,0,0"/>
+                        <TextBox Text="{Binding WatermarkText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="水印文字（默认：林琝淏科技集团有限公司）"
+                                 FontSize="12" Margin="0,6,0,0"/>
+                        <TextBlock Text="HTML 产物（单文件 / 统计 / 目录 / 表情包画廊）会平铺斜纹水印；EPUB 加版权页脚；文档版（打印版 HTML）平铺深色水印。关闭开关后导出全部无水印。"
+                                   Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
                         <CheckBox Content="报错时自动上传诊断日志"
                                   IsChecked="{Binding DiagnosticsConsented}" Margin="0,8,0,0"/>
                     </StackPanel>

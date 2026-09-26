@@ -131,6 +131,7 @@ public static class ChatStatsReport
         html.Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
         html.Append($"<title>{HtmlEscape(contactName.Length == 0 ? "聊天记录统计" : contactName + " 统计")}</title>");
         html.Append($"<style>{Styles}</style></head><body>");
+        html.Append(Watermark.HtmlOverlay());
         html.Append($"<header><h1>📊 {HtmlEscape(contactName.Length == 0 ? "聊天记录" : contactName)} · 统计报告</h1>");
         html.Append($"<p class=\"sub\">数据范围：{(earliest?.ToString("yyyy-MM-dd HH:mm") ?? "—")} 至 {latest?.ToString("yyyy-MM-dd HH:mm") ?? "—"}　·　共 {totalMessages} 条消息　·　生成于 {now:yyyy-MM-dd HH:mm}</p></header>");
 
@@ -211,7 +212,7 @@ public static class ChatStatsReport
         }
         html.Append("</section>");
 
-        html.Append("<footer>由 WeChatExporter 本地生成 · 数据未离开你的设备</footer></body></html>");
+        html.Append($"<footer>由 WeChatExporter 本地生成 · 数据未离开你的设备{Watermark.HtmlFooter()}</footer></body></html>");
 
         var safeName = SanitizeFilename(contactName.Length == 0 ? "统计报告" : contactName);
         var stamp = now.ToString("yyyyMMdd-HHmmss");

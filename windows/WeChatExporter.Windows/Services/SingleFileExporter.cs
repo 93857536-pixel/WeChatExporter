@@ -38,6 +38,7 @@ internal static class SingleFileExporter
         html.Append("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"/>");
         html.Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>");
         html.Append($"<title>{title}</title><style>{ExportStyles}</style></head><body>");
+        html.Append(Watermark.HtmlOverlay());
         html.Append("<div class=\"bg-scene\" aria-hidden=\"true\">");
         html.Append("<div class=\"aurora aurora-a\"></div><div class=\"aurora aurora-b\"></div><div class=\"aurora aurora-c\"></div>");
         html.Append("<div class=\"grid-floor\"></div></div>");
@@ -49,7 +50,7 @@ internal static class SingleFileExporter
         html.Append($"<span class=\"pill pill-muted\">{stamp}</span></div></header><main>");
         html.Append(body);
         html.Append("</main><footer><span class=\"footer-brand\">WeChatExporter</span>");
-        html.Append("<span class=\"footer-dot\">·</span><span>深空霓虹主题 · 浏览器离线可阅</span></footer></body></html>");
+        html.Append($"<span class=\"footer-dot\">·</span><span>深空霓虹主题 · 浏览器离线可阅</span>{Watermark.HtmlFooter()}</footer></body></html>");
 
         File.WriteAllText(outPath, html.ToString(), Encoding.UTF8);
         return outPath;
@@ -80,6 +81,7 @@ internal static class SingleFileExporter
         html.Append(ExportStyles);
         html.Append(GalleryStyles);
         html.Append("</style></head><body>");
+        html.Append(Watermark.HtmlOverlay());
         html.Append("<div class=\"bg-scene\" aria-hidden=\"true\">");
         html.Append("<div class=\"aurora aurora-a\"></div><div class=\"aurora aurora-b\"></div><div class=\"aurora aurora-c\"></div>");
         html.Append("<div class=\"grid-floor\"></div></div>");
@@ -91,7 +93,7 @@ internal static class SingleFileExporter
         html.Append($"<span class=\"pill pill-muted\">{stamp}</span></div></header><main>");
         html.Append(body);
         html.Append("</main><footer><span class=\"footer-brand\">WeChatExporter</span>");
-        html.Append("<span class=\"footer-dot\">·</span><span>收藏与商店表情包 · 浏览器离线可阅</span></footer></body></html>");
+        html.Append($"<span class=\"footer-dot\">·</span><span>收藏与商店表情包 · 浏览器离线可阅</span>{Watermark.HtmlFooter()}</footer></body></html>");
 
         File.WriteAllText(outPath, html.ToString(), Encoding.UTF8);
         return outPath;

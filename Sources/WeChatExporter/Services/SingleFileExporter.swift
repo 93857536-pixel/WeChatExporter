@@ -58,6 +58,7 @@ enum SingleFileExporter {
           </style>
         </head>
         <body>
+          \(Watermark.htmlOverlay())
           <div class="bg-scene" aria-hidden="true">
             <div class="aurora aurora-a"></div>
             <div class="aurora aurora-b"></div>
@@ -81,6 +82,7 @@ enum SingleFileExporter {
             <span class="footer-brand">WeChatExporter</span>
             <span class="footer-dot">·</span>
             <span>深空霓虹主题 · 浏览器离线可阅</span>
+            \(Watermark.htmlFooter())
           </footer>
         </body>
         </html>
@@ -121,6 +123,7 @@ enum SingleFileExporter {
           </style>
         </head>
         <body>
+          \(Watermark.htmlOverlay())
           <div class="bg-scene" aria-hidden="true">
             <div class="aurora aurora-a"></div>
             <div class="aurora aurora-b"></div>
@@ -144,6 +147,7 @@ enum SingleFileExporter {
             <span class="footer-brand">WeChatExporter</span>
             <span class="footer-dot">·</span>
             <span>收藏与商店表情包 · 浏览器离线可阅</span>
+            \(Watermark.htmlFooter())
           </footer>
         </body>
         </html>

@@ -118,6 +118,7 @@ enum ChatStatsReport {
         html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         html += "<title>\(escape(contactName.isEmpty ? "聊天记录统计" : contactName + " 统计"))</title>"
         html += "<style>" + styles + "</style></head><body>"
+        html += Watermark.htmlOverlay()
         html += "<header><h1>📊 \(escape(contactName.isEmpty ? "聊天记录" : contactName)) · 统计报告</h1>"
         html += "<p class=\"sub\">数据范围：\(earliest.map { formatDate($0) } ?? "—") 至 \(latest.map { formatDate($0) } ?? "—")　·　共 \(totalMessages) 条消息　·　生成于 \(dateString(Date()))</p></header>"
 
@@ -184,7 +185,7 @@ enum ChatStatsReport {
         }
         html += "</section>"
 
-        html += "<footer>由 WeChatExporter 本地生成 · 数据未离开你的设备</footer></body></html>"
+        html += "<footer>由 WeChatExporter 本地生成 · 数据未离开你的设备" + Watermark.htmlFooter() + "</footer></body></html>"
 
         let safeName = sanitizeFilename(contactName.isEmpty ? "统计报告" : contactName)
         let outURL = destinationDir.appendingPathComponent("\(safeName)_统计_\(fileStamp()).html")

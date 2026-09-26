@@ -507,6 +507,11 @@ final class AppViewModel: ObservableObject {
                 _ = ExportIndexBuilder.writeIndex(into: base, log: logHandler())
             }
 
+            // 导出水印：兜底扫描导出目录全部 HTML（幂等，已注入的跳过），缺水印层的补上
+            if watermarkEnabled {
+                Watermark.applyToDirectory(base, log: logHandler())
+            }
+
             // 加密导出（密码非空 → 整体加密为 .wxenc 并删除明文目录）
             if !exportPassword.isEmpty {
                 let encFile = base.appendingPathComponent("加密导出.wxenc")
@@ -753,6 +758,16 @@ final class AppViewModel: ObservableObject {
 
     /// 加密导出密码（仅内存持有，不落盘；留空 = 不加密，导出明文目录）
     @Published var exportPassword = ""
+
+    /// 导出产物是否平铺视觉水印（默认开启；关闭即无水印版本）
+    @Published var watermarkEnabled: Bool = ExportModePreferences.watermarkEnabled {
+        didSet { ExportModePreferences.watermarkEnabled = watermarkEnabled }
+    }
+
+    /// 水印文字（设置面板可改，默认「林琝淏科技集团有限公司」）
+    @Published var watermarkText: String = ExportModePreferences.watermarkText {
+        didSet { ExportModePreferences.watermarkText = watermarkText }
+    }
 
     /// 解密 .wxenc 加密导出包到导出目录
     func decryptEncryptedExport() {

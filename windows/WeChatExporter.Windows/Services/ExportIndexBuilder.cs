@@ -73,6 +73,7 @@ public static class ExportIndexBuilder
         sb.Append("<!DOCTYPE html>\n<html lang=\"zh-CN\"><head><meta charset=\"utf-8\">");
         sb.Append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
         sb.Append("<title>微信聊天记录导出 · 目录</title><style>").Append(Styles).Append("</style></head><body>");
+        sb.Append(Watermark.HtmlOverlay());
         sb.Append("<header><h1>📁 导出目录</h1>");
         sb.Append($"<p class=\"sub\">单文件 HTML {htmlFiles.Count} 份　·　文本 {textFiles.Count} 份　·　媒体 {mediaCount} 个（{FormatBytes(mediaBytes)}）</p></header>");
         sb.Append("<div class=\"searchbox\"><input id=\"q\" type=\"search\" placeholder=\"全文检索（关键词不区分大小写，搜索内嵌文本文件）\" autocomplete=\"off\"><span id=\"hitcount\"></span></div>");
@@ -114,6 +115,7 @@ public static class ExportIndexBuilder
             });
             </script>
             """);
+        sb.Append(Watermark.HtmlFooter());
         sb.Append("</body></html>");
 
         var outPath = Path.Combine(baseDir, "index.html");

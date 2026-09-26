@@ -250,6 +250,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>导出产物是否平铺视觉水印（默认开启；关闭即无水印版本，持久化 settings.json）。</summary>
+    public bool WatermarkEnabled
+    {
+        get => Watermark.Enabled;
+        set
+        {
+            if (Watermark.Enabled == value) return;
+            Watermark.Enabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>水印文字（默认「林琝淏科技集团有限公司」，可改，持久化 settings.json）。</summary>
+    public string WatermarkText
+    {
+        get => Watermark.Text;
+        set
+        {
+            if (Watermark.Text == value) return;
+            Watermark.Text = value;
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>解密 .wxenc 加密导出包到导出目录</summary>
     public void DecryptEncryptedExport()
     {
@@ -610,6 +634,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (IndexPageEnabled)
             {
                 ExportIndexBuilder.WriteIndex(ExportPath, AppendLog);
+            }
+
+            // 导出水印：兜底扫描导出目录全部 HTML（幂等，已注入的跳过），缺水印层的补上
+            if (WatermarkEnabled)
+            {
+                Watermark.ApplyToDirectory(ExportPath, AppendLog);
             }
 
             // 加密导出（密码非空 → 整体加密为 .wxenc 并删除明文目录）

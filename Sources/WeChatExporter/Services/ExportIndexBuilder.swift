@@ -58,6 +58,7 @@ enum ExportIndexBuilder {
         html += "<!DOCTYPE html>\n<html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
         html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         html += "<title>微信聊天记录导出 · 目录</title><style>" + styles + "</style></head><body>"
+        html += Watermark.htmlOverlay()
         html += "<header><h1>📁 导出目录</h1>"
         html += "<p class=\"sub\">单文件 HTML \(htmlFiles.count) 份　·　文本 \(textFiles.count) 份　·　媒体 \(mediaCount) 个（\(ByteCountFormatter.string(fromByteCount: Int64(mediaBytes), countStyle: .file))）</p></header>"
 

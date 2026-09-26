@@ -211,9 +211,12 @@ public static class EBookExporter
         @media print{.print-tip{display:none}body{padding:0}}
         </style>
         """);
-        sb.Append("</head>\n<body>\n<div class=\"wrap\">\n");
+        sb.Append("</head>\n<body>\n" + Watermark.HtmlOverlay(lightBackground: true) + "<div class=\"wrap\">\n");
         sb.Append($"<h1>{Esc(title)}</h1>\n");
         sb.Append($"<p class=\"meta\">共 {messages.Count} 条消息 · 由 WeChatExporter 本地生成 · {DateTime.Now:yyyy-MM-dd HH:mm}</p>\n");
+        var docCopyright = Watermark.PlainLine();
+        if (docCopyright.Length > 0)
+            sb.Append($"<p class=\"meta\" style=\"text-align:center;opacity:.6\">{Esc(docCopyright)}</p>\n");
         sb.Append("<p class=\"print-tip\">打印：Ctrl/Cmd+P，A4、缩放 100%；或用浏览器「另存为 PDF」。</p>\n");
 
         var lastMonth = "";
@@ -299,6 +302,9 @@ public static class EBookExporter
         sb.Append($"<head><title>{Esc(title)}</title></head>\n<body>\n");
         sb.Append($"<h1>{Esc(title)}</h1>\n");
         sb.Append($"<p class=\"meta\">共 {messages.Count} 条消息 · 由 WeChatExporter 本地生成</p>\n");
+        var copyright = Watermark.PlainLine();
+        if (copyright.Length > 0)
+            sb.Append($"<p class=\"meta\" style=\"text-align:center;opacity:.6\">{Esc(copyright)}</p>\n");
         var lastMonth = "";
         foreach (var m in messages)
         {

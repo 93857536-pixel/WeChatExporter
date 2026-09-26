@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.18.0] - 2026-09-26
+
+### Added
+- **导出水印（双平台，默认开）**：导出产物支持平铺视觉水印，可开关、水印文字可自定义（默认「林琝淏科技集团有限公司」，设置面板可改）。HTML 产物（单文件 / 统计 / 目录 / 表情包画廊）平铺斜纹水印 + 页脚版权行；EPUB 加版权页脚；文档版（macOS PDF 每页对角水印 / Windows 打印版 HTML 平铺深色水印）。关闭开关即无水印版本。实现：macOS 纯 CryptoKit 外的标准库 SVG data-URI，Windows 纯 BCL，零第三方依赖；导出流程含幂等兜底扫描（缺水印层的 HTML 自动补注入），双端行为一致
+- 持久化：macOS UserDefaults（`export.watermarkEnabled` / `export.watermarkText`），Windows settings.json（与诊断日志同意状态同目录，保留其他字段）
+
 ## [2.17.0] - 2026-09-26
 
 ### Changed

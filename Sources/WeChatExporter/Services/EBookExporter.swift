@@ -183,6 +183,31 @@ enum EBookExporter {
             ctx.scaleBy(x: 1, y: -1)
             y = pdfMargin
             pageOpen = true
+            drawWatermark()
+        }
+        /// 每页对角平铺水印（低透明度，正文绘制在其上）
+        func drawWatermark() {
+            let wm = Watermark.current
+            guard wm.active else { return }
+            ctx.saveGState()
+            ctx.setAlpha(0.08)
+            let wmFont = NSFont(name: "PingFang SC", size: 26) ?? NSFont.systemFont(ofSize: 26)
+            let attr = NSAttributedString(string: wm.text, attributes: [.font: wmFont, .foregroundColor: NSColor(calibratedWhite: 0.15, alpha: 1.0)])
+            let cfAttr = attr as CFAttributedString
+            let framesetter = CTFramesetterCreateWithAttributedString(cfAttr)
+            let path = CGPath(rect: CGRect(x: 0, y: 0, width: pdfPageW, height: 60), transform: nil)
+            let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
+            let lines = CTFrameGetLines(frame) as! [CTLine]
+            let c = CGPoint(x: pdfPageW / 2, y: pdfPageH / 2)
+            ctx.translateBy(x: c.x, y: c.y)
+            ctx.rotate(by: -18 * .pi / 180)
+            ctx.translateBy(x: -c.x, y: -c.y)
+            for line in lines {
+                let width = CTLineGetTypographicBounds(line, nil, nil, nil)
+                ctx.textPosition = CGPoint(x: c.x - width / 2, y: c.y - 20)
+                CTLineDraw(line, ctx)
+            }
+            ctx.restoreGState()
         }
         func endPage() {
             if pageOpen {
@@ -330,6 +355,9 @@ enum EBookExporter {
 
         var body = "<h1>\(esc(title))</h1>"
         body += "<p class=\"meta\">共 \(messages.count) 条消息 · 由 WeChatExporter 本地生成</p>"
+        if !Watermark.plainLine().isEmpty {
+            body += "<p class=\"meta\" style=\"text-align:center;opacity:.6\">\(esc(Watermark.plainLine()))</p>"
+        }
         var lastMonth = ""
         for m in messages {
             let month = m.timestamp.map { monthFmt.string(from: $0) } ?? "其他"

@@ -51,6 +51,8 @@ enum ExportModePreferences {
         static let customWxCliPath = "export.customWxCliPath"
         static let ebookEpub = "export.ebookEpub"
         static let ebookDocument = "export.ebookDocument"
+        static let watermarkEnabled = "export.watermarkEnabled"
+        static let watermarkText = "export.watermarkText"
     }
 
     static var mode: ExportMode {
@@ -148,6 +150,27 @@ enum ExportModePreferences {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Keys.ebookDocument)
+        }
+    }
+
+    /// 导出产物是否平铺视觉水印（默认开启；关闭即无水印版本）
+    static var watermarkEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.watermarkEnabled) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.watermarkEnabled)
+        }
+    }
+
+    /// 水印文字（设置面板可改，默认「林琝淏科技集团有限公司」）
+    static var watermarkText: String {
+        get {
+            UserDefaults.standard.string(forKey: Keys.watermarkText) ?? "林琝淏科技集团有限公司"
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.watermarkText)
         }
     }
 }
