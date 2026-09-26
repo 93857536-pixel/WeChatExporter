@@ -49,6 +49,8 @@ enum ExportModePreferences {
         static let incremental = "export.incremental"
         static let indexPage = "export.indexPage"
         static let customWxCliPath = "export.customWxCliPath"
+        static let ebookEpub = "export.ebookEpub"
+        static let ebookDocument = "export.ebookDocument"
     }
 
     static var mode: ExportMode {
@@ -124,6 +126,28 @@ enum ExportModePreferences {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Keys.indexPage)
+        }
+    }
+
+    /// 导出时是否顺带生成 EPUB 电子书（默认开启）
+    static var ebookEpubEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.ebookEpub) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.ebookEpub)
+        }
+    }
+
+    /// 导出时是否顺带生成文档版 PDF / XPS（macOS 生成 PDF，Windows 生成 XPS，默认开启）
+    static var ebookDocumentEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.ebookDocument) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.ebookDocument)
         }
     }
 }

@@ -332,6 +332,36 @@ private struct ExportSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // 电子书 / 文档版
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "books.vertical")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("电子书 / 文档版")
+                            .font(.headline)
+                    }
+
+                    Toggle("导出时生成 EPUB 电子书（本地阅读 App 可打开）", isOn: Binding(
+                        get: { model.ebookEpubEnabled },
+                        set: { model.setEbookEpubEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Toggle("导出时生成文档版 PDF（A4 排版，可打印 / 分享）", isOn: Binding(
+                        get: { model.ebookDocumentEnabled },
+                        set: { model.setEbookDocumentEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("本地聚合 chat.json 直接生成，不依赖 HTML，离线无网络。按月分节、保留发言人和时间戳。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // wx-cli 设置（用户自带）
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {

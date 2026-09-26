@@ -391,6 +391,27 @@ final class AppViewModel: ObservableObject {
                             log: logHandler()
                         )
                     }
+                    // 电子书 / 文档版（本地聚合 chat.json，生成 EPUB 与 PDF）
+                    if ebookEpubEnabled {
+                        if let url = EBookExporter.writeEpub(
+                            from: tempDir,
+                            contactName: contact.displayName,
+                            into: base,
+                            log: logHandler()
+                        ) {
+                            summary.append("• \(contact.displayName) EPUB → \(url.lastPathComponent)")
+                        }
+                    }
+                    if ebookDocumentEnabled {
+                        if let url = EBookExporter.writePdf(
+                            from: tempDir,
+                            contactName: contact.displayName,
+                            into: base,
+                            log: logHandler()
+                        ) {
+                            summary.append("• \(contact.displayName) PDF → \(url.lastPathComponent)")
+                        }
+                    }
                 }
 
                 // 表情包导出（含媒体模式）
@@ -455,6 +476,28 @@ final class AppViewModel: ObservableObject {
                     try FileManager.default.createDirectory(at: contactDir, withIntermediateDirectories: true)
                     try copyTextArtifacts(from: tempDir, to: contactDir)
                     summary.append("• \(contact.displayName)：\(count) 条")
+
+                    // 电子书 / 文档版（本地聚合 chat.json，生成 EPUB 与 PDF）
+                    if ebookEpubEnabled {
+                        if let url = EBookExporter.writeEpub(
+                            from: tempDir,
+                            contactName: contact.displayName,
+                            into: base,
+                            log: logHandler()
+                        ) {
+                            summary.append("• \(contact.displayName) EPUB → \(url.lastPathComponent)")
+                        }
+                    }
+                    if ebookDocumentEnabled {
+                        if let url = EBookExporter.writePdf(
+                            from: tempDir,
+                            contactName: contact.displayName,
+                            into: base,
+                            log: logHandler()
+                        ) {
+                            summary.append("• \(contact.displayName) PDF → \(url.lastPathComponent)")
+                        }
+                    }
                 }
             }
 
@@ -721,6 +764,22 @@ final class AppViewModel: ObservableObject {
     func setIndexPageEnabled(_ value: Bool) {
         indexPageEnabled = value
         ExportModePreferences.indexPageEnabled = value
+    }
+
+    /// EPUB 电子书开关（设置面板绑定，默认开启）
+    @Published var ebookEpubEnabled: Bool = ExportModePreferences.ebookEpubEnabled
+
+    func setEbookEpubEnabled(_ value: Bool) {
+        ebookEpubEnabled = value
+        ExportModePreferences.ebookEpubEnabled = value
+    }
+
+    /// 文档版 PDF 开关（设置面板绑定，默认开启）
+    @Published var ebookDocumentEnabled: Bool = ExportModePreferences.ebookDocumentEnabled
+
+    func setEbookDocumentEnabled(_ value: Bool) {
+        ebookDocumentEnabled = value
+        ExportModePreferences.ebookDocumentEnabled = value
     }
 
     /// 用户自带 wx-cli 路径（设置面板绑定，默认空=自动搜索）

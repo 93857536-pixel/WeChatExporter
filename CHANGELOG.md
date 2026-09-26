@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.16.0] - 2026-09-26
+
+### Added
+- **电子书 / 文档版导出（双平台）**：导出时本地聚合 `chat.json` 直接生成阅读版文档，不依赖 HTML、零第三方依赖、全程离线
+  - **EPUB 电子书（双平台）**：`联系人_聊天记录.epub`，自实现 stored-ZIP 按 EPUB 3.0 规范打包（mimetype stored 首条目），按月分节 + 发言人/时间戳，可用系统 / 第三方阅读器打开
+  - **文档版（macOS PDF / Windows 打印版 HTML）**：A4 排版白底打印版，macOS 用 CGPDFContext + CoreText（PingFang SC 中文渲染）生成 PDF，Windows 生成 A4 @page 打印优化 HTML（浏览器打印 / 另存 PDF，零 UI 线程、离线）；可打印 / 分享
+  - 设置页「电子书 / 文档版」两个开关（默认开）；导出摘要列出生成文件
+  - 双端字段解析与 WxCliService / ChatStatsReport 一致（create_time/timestamp 毫秒秒自适应、嵌套 message/source 行兼容）
+
+### Notes
+- 双端编译验证：macOS `swift build` 0 错 + Windows `dotnet build -p:EnableWindowsTargeting=true` 0 警告 0 错；EPUB ZIP 结构与 PDF/XPS 生成经独立 smoke test 全过
+
 ## [2.15.0] - 2026-09-26
 
 ### Added

@@ -237,6 +237,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private bool _ebookEpubEnabled = true;
+
+    /// <summary>导出时是否顺带生成 EPUB 电子书（本地离线，默认开启）。</summary>
+    public bool EbookEpubEnabled
+    {
+        get => _ebookEpubEnabled;
+        set
+        {
+            if (_ebookEpubEnabled == value) return;
+            _ebookEpubEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private bool _ebookDocumentEnabled = true;
+
+    /// <summary>导出时是否顺带生成文档版（A4 打印版 HTML，浏览器可打印/另存 PDF，默认开启）。</summary>
+    public bool EbookDocumentEnabled
+    {
+        get => _ebookDocumentEnabled;
+        set
+        {
+            if (_ebookDocumentEnabled == value) return;
+            _ebookDocumentEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
     public bool IsDownloadingWhisperModel
     {
         get => _isDownloadingWhisperModel;
@@ -518,6 +546,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         var reportPath = ChatStatsReport.WriteReport(tempDir, contact.DisplayName, ExportPath, AppendLog);
                         if (reportPath is not null)
                             summary.Add($"• {contact.DisplayName} 统计报告 → {Path.GetFileName(reportPath)}");
+                    }
+                    // 电子书 / 文档版（本地聚合 chat.json，生成 EPUB 与打印版文档）
+                    if (EbookEpubEnabled)
+                    {
+                        var epubPath = EBookExporter.WriteEpub(tempDir, contact.DisplayName, ExportPath, AppendLog);
+                        if (epubPath is not null)
+                            summary.Add($"• {contact.DisplayName} EPUB → {Path.GetFileName(epubPath)}");
+                    }
+                    if (EbookDocumentEnabled)
+                    {
+                        var docPath = EBookExporter.WriteDocument(tempDir, contact.DisplayName, ExportPath, AppendLog);
+                        if (docPath is not null)
+                            summary.Add($"• {contact.DisplayName} 文档版 → {Path.GetFileName(docPath)}");
                     }
                 }
                 finally

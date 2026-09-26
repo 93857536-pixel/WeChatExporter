@@ -112,6 +112,10 @@
                                   IsChecked="{Binding IncrementalExportEnabled}" Margin="0,8,0,0"/>
                         <CheckBox Content="导出后生成目录导航页 index.html（文件列表 + 全文检索框）"
                                   IsChecked="{Binding IndexPageEnabled}" Margin="0,8,0,0"/>
+                        <CheckBox Content="导出时生成 EPUB 电子书（本地阅读 App 可打开）"
+                                  IsChecked="{Binding EbookEpubEnabled}" Margin="0,8,0,0"/>
+                        <CheckBox Content="导出时生成文档版（A4 打印版，浏览器可打印/另存 PDF）"
+                                  IsChecked="{Binding EbookDocumentEnabled}" Margin="0,8,0,0"/>
                         <CheckBox Content="报错时自动上传诊断日志"
                                   IsChecked="{Binding DiagnosticsConsented}" Margin="0,8,0,0"/>
                     </StackPanel>
