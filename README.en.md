@@ -13,8 +13,8 @@ Get the latest build from **[GitHub Releases](https://github.com/93857536-pixel/
 
 | Platform | File | Notes |
 |----------|------|-------|
-| macOS (Apple Silicon) | `WeChatExporter-macOS-arm64.dmg` | Drag to Applications |
-| macOS (alt) | `WeChatExporter-macOS-arm64.zip` | Extract and open `.app` |
+| macOS (Apple Silicon / Intel) | `WeChatExporter-macOS-universal.dmg` | Drag to Applications (universal, native on both) |
+| macOS (alt) | `WeChatExporter-macOS-universal.zip` | Extract and open `.app` |
 | Windows (x64) | `WeChatExporter-Windows-x64.zip` | Self-contained, no .NET install |
 
 ![Main UI](docs/screenshots/main-ui.png)
@@ -30,13 +30,14 @@ Get the latest build from **[GitHub Releases](https://github.com/93857536-pixel/
 - **Chat statistics report** (both platforms): single-file HTML report (message counts, top senders, 24-hour activity, monthly trend, media breakdown), generated locally, no external dependencies
 - **Incremental export** (both platforms, off by default): remembers a timestamp cursor per "contact + export directory"; next export keeps only new messages, contacts with no new messages are skipped
 - **Index page + full-text search** (both platforms): generates `index.html` in the export directory with a file list and a keyword search box (embedded text data, fully offline)
+- **Encrypted export** (both platforms, off by default): set an export password in Settings; the whole export directory is sealed into a single `.wxenc` file (PBKDF2-SHA256 100k rounds + AES-256-GCM) and the plaintext is deleted; decrypt on either platform later with the password — fully offline, zero third-party dependencies
 - **E-book / document export** (both platforms): builds readable documents directly from `chat.json` — zero dependencies, fully offline. EPUB (`Contact_chat.epub`, hand-rolled stored-ZIP, grouped by month with sender + timestamp) plus a document edition (A4 PDF on macOS via CoreText/PingFang SC; A4 print-optimized HTML on Windows, printable or save-as-PDF)
 - Export TXT / CSV / JSON
 
 ## Requirements
 
 ### macOS
-- macOS 13+, Apple Silicon (arm64)
+- macOS 13+, Apple Silicon (arm64) + Intel (x86_64), universal binary
 - WeChat Mac 4.x, logged in
 - SIP disabled for key capture
 

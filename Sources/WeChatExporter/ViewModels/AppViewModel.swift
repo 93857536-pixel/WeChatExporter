@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 
 @MainActor
 final class AppViewModel: ObservableObject {
@@ -506,6 +507,14 @@ final class AppViewModel: ObservableObject {
                 _ = ExportIndexBuilder.writeIndex(into: base, log: logHandler())
             }
 
+            // 加密导出（密码非空 → 整体加密为 .wxenc 并删除明文目录）
+            if !exportPassword.isEmpty {
+                let encFile = base.appendingPathComponent("加密导出.wxenc")
+                _ = try EncryptedExport.encryptDirectory(base, password: exportPassword, to: encFile, log: logHandler())
+                try FileManager.default.removeItem(at: base)
+                summary.append("🔒 已加密为 \(encFile.lastPathComponent)，明文目录已删除；用「解密导出」恢复")
+            }
+
             alertMessage = "已导出 \(selected.count) 个会话到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n导出方式：\(mode.displayName)"
             showAlert = true
         } catch {
@@ -740,6 +749,31 @@ final class AppViewModel: ObservableObject {
     func setImageOCREnabled(_ value: Bool) {
         imageOCREnabled = value
         ExportModePreferences.imageOCREnabled = value
+    }
+
+    /// 加密导出密码（仅内存持有，不落盘；留空 = 不加密，导出明文目录）
+    @Published var exportPassword = ""
+
+    /// 解密 .wxenc 加密导出包到导出目录
+    func decryptEncryptedExport() {
+        if exportPassword.isEmpty {
+            presentError("请先在「加密导出」卡片输入密码，再执行解密。")
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.title = "选择加密导出文件 (.wxenc)"
+        panel.allowedFileTypes = ["wxenc"]
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        guard panel.runModal() == .OK, let file = panel.url else { return }
+        let dest = URL(fileURLWithPath: exportPath.expandingTildeInPath, isDirectory: true)
+        do {
+            let n = try EncryptedExport.decryptFile(file, password: exportPassword, to: dest, log: logHandler())
+            alertMessage = "解密完成：\(n) 个文件 → \(dest.path)"
+            showAlert = true
+        } catch {
+            presentError(error.localizedDescription)
+        }
     }
 
     /// 统计报告开关（设置面板绑定，默认开启）

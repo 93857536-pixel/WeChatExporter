@@ -362,6 +362,32 @@ private struct ExportSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // 加密导出
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "lock.shield.fill")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("加密导出")
+                            .font(.headline)
+                    }
+
+                    SecureField("导出密码（留空 = 明文目录；设置后整体加密为 .wxenc）", text: $model.exportPassword)
+                        .textFieldStyle(.roundedBorder)
+
+                    HStack(spacing: 8) {
+                        Button("解密导出…") { model.decryptEncryptedExport() }
+                            .buttonStyle(.bordered)
+                    }
+
+                    Text("密码只在内存中持有，不落盘。留空则按普通明文目录导出。.wxenc 可复制到任意机器用同密码解密（双端互通）。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // wx-cli 设置（用户自带）
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {

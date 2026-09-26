@@ -8,7 +8,7 @@ APP="$ROOT/WeChatExporter.app"
 if [[ "${CREATE_DMG:-0}" == "1" ]]; then
   bash "$ROOT/scripts/create_dmg.sh"
   echo ""
-  echo "DMG 安装包: $ROOT/WeChatExporter-macOS-arm64.dmg"
+  echo "DMG 安装包: $ROOT/WeChatExporter-macOS-universal.dmg"
 fi
 
 # 删除旧的 Python 版应用

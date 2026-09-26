@@ -121,6 +121,20 @@
                     </StackPanel>
                 </GroupBox>
 
+                <GroupBox Header="加密导出" Margin="0,0,0,16" Padding="12">
+                    <StackPanel>
+                        <PasswordBox x:Name="PwdBox" Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="设置导出密码" Padding="10,6" Margin="0,0,8,0"
+                                    Click="SetPassword_Click"/>
+                            <Button Content="解密导出…" Padding="10,6"
+                                    Click="DecryptExport_Click"/>
+                        </StackPanel>
+                        <TextBlock Text="设置密码后，导出目录将整体加密为单个 .wxenc 文件（AES-256-GCM + PBKDF2-SHA256），并自动删除明文目录。密码只在内存中持有，不落盘。留空则按普通明文目录导出；.wxenc 可复制到任意机器用同密码解密（双端互通）。"
+                                   Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+
                 <GroupBox Header="导出目录" Margin="0,0,0,16" Padding="12">
                     <StackPanel>
                         <TextBox Text="{Binding ExportPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"/>

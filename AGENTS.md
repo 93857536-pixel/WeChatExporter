@@ -34,5 +34,6 @@
 - 仓库：`93857536-pixel/WeChatExporter`（GitHub）
 - 双平台：macOS（SwiftUI，`Sources/`）+ Windows（WPF，`windows/`）
 - 发布机制：推 `v*` tag 触发 GitHub Actions 自动打包上传 Releases，**无需手动上传资产**
-- 更新通道：应用内自动更新从 GitHub Releases 下载 `WeChatExporter-macOS-arm64.dmg`
+- 更新通道：应用内自动更新从 GitHub Releases 下载 `WeChatExporter-macOS-universal.dmg`（universal 双芯片）
 - 常用脚本：`./build_app.sh`（macOS 打包）、`scripts/create_dmg.sh`（DMG）、`windows/build.ps1`（Windows）
+- **服务器监控已拆出**：iOS Monitor App + 服务器端脚本（monitor-api/diag-server/collector/notify/auto-fix）现独立维护在私有仓 `93857536-pixel/WeChatExporterMonitor`（v2.17.0 起从本仓移除）；诊断日志上传协议契约在该仓 docs 中，主仓 `DiagnosticUploader` 的 POST 协议与之保持兼容

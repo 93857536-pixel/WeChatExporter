@@ -19,8 +19,8 @@
 
 | 平台 | 文件 | 说明 |
 |------|------|------|
-| macOS (Apple Silicon) | `WeChatExporter-macOS-arm64.dmg` | 打开 DMG，拖到「应用程序」即可安装 |
-| macOS (备用) | `WeChatExporter-macOS-arm64.zip` | 解压后打开 `.app` |
+| macOS (Apple Silicon / Intel) | `WeChatExporter-macOS-universal.dmg` | 打开 DMG，拖到「应用程序」即可安装（universal 双芯片原生） |
+| macOS (备用) | `WeChatExporter-macOS-universal.zip` | 解压后打开 `.app` |
 | Windows (64 位) | `WeChatExporter-Windows-x64.zip` | 解压后运行 `WeChatExporter.exe`，**自包含，无需安装 .NET** |
 
 > 版本更新记录见 [CHANGELOG.md](CHANGELOG.md)
@@ -38,6 +38,7 @@
 - **增量导出**（双平台，默认关）：按「联系人 + 导出目录」记忆时间戳游标，下次只导出新增消息；无新增的会话自动跳过
 - **目录导航页 + 全文检索**（双平台）：导出后在目录生成 `index.html`，文件列表导航 + 关键词全文检索（内嵌文本数据，可离线打开）
 - **电子书 / 文档版导出**（双平台）：本地聚合 `chat.json` 直接生成阅读版文档，零依赖离线。EPUB 电子书（`联系人_聊天记录.epub`，自实现 stored-ZIP，按月分节 + 发言人/时间戳）+ 文档版（macOS 生成 A4 PDF（CoreText/PingFang SC 渲染），Windows 生成 A4 打印版 HTML（浏览器打印 / 另存 PDF））
+- **加密导出**（双平台，默认关）：设置中填写导出密码后，导出目录整体打包加密为单个 `.wxenc` 文件（PBKDF2-SHA256 100k 轮派生密钥 + AES-256-GCM 认证加密），明文目录随即删除；日后在任一端（macOS/Windows 互通）凭密码解密还原完整目录，全程离线、零第三方依赖
 - 自动检测微信数据目录
 - 通过 LLDB / 内存扫描捕获密钥并解密（微信 4.x SQLCipher）
 - 导出 TXT / CSV / JSON
@@ -49,7 +50,7 @@
 | 项目 | 要求 |
 |------|------|
 | 系统 | macOS 13 (Ventura) 或更高 |
-| 芯片 | Apple Silicon (arm64)，暂不支持 Intel Mac |
+| 芯片 | Apple Silicon (arm64) + Intel (x86_64) universal，双芯片原生运行 |
 | 微信 | Mac 版 4.x（已登录并同步过聊天记录） |
 | 密钥捕获 | 需关闭 SIP（System Integrity Protection） |
 
@@ -92,7 +93,7 @@
 
 ### macOS
 
-1. 下载并打开 **`WeChatExporter-macOS-arm64.dmg`**
+1. 下载并打开 **`WeChatExporter-macOS-universal.dmg`**
 2. 在弹出的安装窗口中，将 **WeChatExporter** 拖到右侧 **「应用程序」** 文件夹
 3. 打开应用（若提示无法验证开发者，请 **右键 → 打开**）
 4. 点击 **「准备数据」** → 选择联系人 → **「导出选中」**
@@ -184,6 +185,10 @@ codesign --force --deep --sign - /Applications/WeChatExporter.app
 ## 参与贡献
 
 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 服务器监控（独立仓）
+
+部署后的服务器监控闭环（iOS Monitor App + 服务器端脚本 + 部署文档）已拆至私有仓 `93857536-pixel/WeChatExporterMonitor`（v2.17.0 起）。本仓 `DiagnosticUploader` 的报错日志上传协议与该仓 diag-server 保持兼容。
 
 ## 免责声明
 

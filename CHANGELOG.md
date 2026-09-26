@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.17.0] - 2026-09-26
+
+### Changed
+- **Universal 双芯片构建（P2-1）**：macOS 资产改为 universal（x86_64 + arm64），Intel 芯片原生运行、Apple Silicon 原生运行（内置 wx-cli 为 x86_64 单架构，Apple Silicon 上经 Rosetta 透明执行）；资产改名 `WeChatExporter-macOS-universal.dmg/.zip`，应用内自动更新通道不受影响
+- **服务器监控拆出独立仓（P2-3）**：iOS Monitor App（`ios/WeChatExporterMonitor/`）、服务器端脚本（`scripts/` 中 5 个 monitor 脚本）与部署/契约文档迁至私有仓 `93857536-pixel/WeChatExporterMonitor`，本仓 `DiagnosticUploader` 上传协议保持兼容
+
+### Added
+- **加密导出（P2-2，双平台，默认关）**：设置中填写导出密码后，导出目录整体打包加密为单个 `.wxenc` 文件（PBKDF2-SHA256 100k 轮派生密钥 + AES-256-GCM 认证加密，自实现格式、零第三方依赖），明文目录随即删除；macOS / Windows 双端互通，凭密码解密还原完整目录，全程离线。实现：macOS 纯 CryptoKit（自写 PBKDF2-HMAC-SHA256），Windows 纯 BCL（AesGcm + Rfc2898DeriveBytes）；双端字节级互通实测通过（含错误密码正确拦截）
+
 ## [2.16.0] - 2026-09-26
 
 ### Added

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-macos:
-    name: Build macOS (arm64)
+    name: Build macOS (universal)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -19,24 +19,27 @@ jobs:
       - name: Prepare app icon
         run: bash scripts/prepare_icon.sh
 
-      - name: Build app with bundled wx-cli
+      - name: Build app with bundled wx-cli (x86_64 + arm64)
         run: ./build_app.sh
+
+      - name: Verify universal binary
+        run: lipo -archs WeChatExporter.app/Contents/MacOS/WeChatExporter | grep -q x86_64 && lipo -archs WeChatExporter.app/Contents/MacOS/WeChatExporter | grep -q arm64
 
       - name: Create DMG installer
         run: |
           python3 -m pip install --quiet Pillow || true
-          bash scripts/create_dmg.sh WeChatExporter-macOS-arm64.dmg
+          bash scripts/create_dmg.sh WeChatExporter-macOS-universal.dmg
 
       - name: Create zip
-        run: ditto -c -k --sequesterRsrc --keepParent WeChatExporter.app WeChatExporter-macOS-arm64.zip
+        run: ditto -c -k --sequesterRsrc --keepParent WeChatExporter.app WeChatExporter-macOS-universal.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos
           path: |
-            WeChatExporter-macOS-arm64.dmg
-            WeChatExporter-macOS-arm64.zip
+            WeChatExporter-macOS-universal.dmg
+            WeChatExporter-macOS-universal.zip
 
   build-windows:
     name: Build Windows (x64)

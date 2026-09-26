@@ -4,16 +4,36 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="WeChatExporter"
 APP_DIR="$ROOT/${APP_NAME}.app"
-BINARY="$ROOT/.build/release/WeChatExporter"
 ICON_SRC="$ROOT/assets/AppIcon.icns"
 ICON_PNG="$ROOT/assets/AppIcon.png"
 WX_CLI_VERSION="${WX_CLI_VERSION:-vendor}"
-APP_VERSION="${APP_VERSION:-2.16.0}"
+APP_VERSION="${APP_VERSION:-2.17.0}"
 APP_BUILD="${APP_BUILD:-31}"
 
-echo "编译原生 macOS 应用…"
+echo "编译原生 macOS 应用（universal: x86_64 + arm64）…"
 cd "$ROOT"
-swift build -c release
+swift build -c release --arch x86_64 --arch arm64
+
+BINARY="$ROOT/.build/release/WeChatExporter"
+if [[ ! -x "$BINARY" && -x "$ROOT/.build/out/Products/Release/$APP_NAME" ]]; then
+  BINARY="$ROOT/.build/out/Products/Release/$APP_NAME"
+fi
+
+# 校验 universal 双架构；若环境无法交叉编译出第二架构则降级为单架构并告警
+ARCHS="$(lipo -archs "$BINARY" 2>/dev/null || echo '')"
+case " $ARCHS " in
+  *" x86_64 "* | *" arm64 "*)
+    if [[ " $ARCHS " == *" x86_64 "* && " $ARCHS " == *" arm64 " ]]; then
+      echo "双架构校验通过：$ARCHS"
+    else
+      echo "警告：仅单架构（$ARCHS），另一架构交叉编译失败，继续构建"
+    fi
+    ;;
+  *)
+    echo "错误：lipo 无法解析 $BINARY 的架构（'$ARCHS'）" >&2
+    exit 1
+    ;;
+esac
 
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/$APP_NAME"

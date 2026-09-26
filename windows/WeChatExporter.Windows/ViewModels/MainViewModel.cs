@@ -19,6 +19,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _logFlushQueued;
     private string _searchText = "";
     private string _exportPath;
+    private string _exportPassword = "";
     private string _statusText = "就绪";
     private bool _isBusy;
     private bool _isDataReady;
@@ -234,6 +235,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (_indexPageEnabled == value) return;
             _indexPageEnabled = value;
             OnPropertyChanged();
+        }
+    }
+
+    /// <summary>加密导出密码（仅内存持有，不落盘；留空 = 不加密，导出明文目录）。</summary>
+    public string ExportPassword
+    {
+        get => _exportPassword;
+        set
+        {
+            if (_exportPassword == value) return;
+            _exportPassword = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>解密 .wxenc 加密导出包到导出目录</summary>
+    public void DecryptEncryptedExport()
+    {
+        if (string.IsNullOrEmpty(_exportPassword))
+        {
+            ShowError("请先在「加密导出」卡片输入密码，再执行解密。");
+            return;
+        }
+        var dialog = new OpenFileDialog
+        {
+            Title = "选择加密导出文件 (.wxenc)",
+            Filter = "加密导出文件 (*.wxenc)|*.wxenc",
+            InitialDirectory = Directory.Exists(_exportPath) ? _exportPath : null,
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            var n = EncryptedExport.DecryptFile(dialog.FileName, _exportPassword, _exportPath, AppendLog);
+            ShowAlert($"解密完成：{n} 个文件 → {_exportPath}");
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
         }
     }
 
@@ -571,6 +610,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (IndexPageEnabled)
             {
                 ExportIndexBuilder.WriteIndex(ExportPath, AppendLog);
+            }
+
+            // 加密导出（密码非空 → 整体加密为 .wxenc 并删除明文目录）
+            if (!string.IsNullOrEmpty(ExportPassword))
+            {
+                var encFile = Path.Combine(ExportPath, "加密导出.wxenc");
+                EncryptedExport.EncryptDirectory(ExportPath, ExportPassword, encFile, AppendLog);
+                Directory.Delete(ExportPath, true);
+                summary.Add($"🔒 已加密为 {encFile}，明文目录已删除；用「解密导出」恢复");
             }
 
             ShowAlert($"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");

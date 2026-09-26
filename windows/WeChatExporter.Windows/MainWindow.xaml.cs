@@ -43,7 +43,25 @@ public partial class MainWindow : Window
         => await _viewModel.RefreshContactsAsync();
 
     private async void Export_Click(object sender, RoutedEventArgs e)
-        => await _viewModel.ExportSelectedAsync();
+    {
+        // 导出前从密码框取当前密码（非空即启用加密导出；留空 = 明文目录）
+        if (!string.IsNullOrEmpty(PwdBox.Password))
+            _viewModel.ExportPassword = PwdBox.Password;
+        await _viewModel.ExportSelectedAsync();
+    }
+
+    private void SetPassword_Click(object sender, RoutedEventArgs e)
+    {
+        // 同步到 ViewModel：下次「导出选中」时生效（非空加密，空 = 明文）
+        _viewModel.ExportPassword = PwdBox.Password;
+    }
+
+    private void DecryptExport_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(PwdBox.Password))
+            _viewModel.ExportPassword = PwdBox.Password;
+        _viewModel.DecryptEncryptedExport();
+    }
 
     private void ChooseFolder_Click(object sender, RoutedEventArgs e)
         => _viewModel.ChooseExportFolder();
