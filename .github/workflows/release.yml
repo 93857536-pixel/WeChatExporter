@@ -87,9 +87,8 @@ jobs:
         with:
           workspaces: linux/src-tauri
 
-      - name: Install tauri-cli (matches tauri 2.x)
-        working-directory: linux/src-tauri
-        run: cargo install tauri-cli --version '^2' --locked
+      - name: Install tauri-cli (Tauri 官方 CI action, 与 tauri 2.x 匹配)
+        uses: tauri-apps/setup-tauri-cli-action@v1
 
       - name: Run unit tests
         working-directory: linux/src-tauri
