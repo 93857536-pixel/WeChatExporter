@@ -47,3 +47,27 @@ jobs:
           ./windows/scripts/bundle_wx_cli.ps1 -DestDir $out
           if (-not (Test-Path (Join-Path $out "wx.exe"))) { throw "wx.exe missing" }
           Write-Host "wx.exe OK:" (Get-Item (Join-Path $out "wx.exe")).Length
+
+  build-linux:
+    name: Linux (Tauri + Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri v2 system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: linux/src-tauri
+
+      - name: cargo check + test
+        working-directory: linux/src-tauri
+        run: |
+          cargo check --all-targets
+          cargo test

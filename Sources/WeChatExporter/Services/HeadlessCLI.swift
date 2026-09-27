@@ -109,14 +109,22 @@ enum HeadlessCLI {
             return 1
         }
         // wx-cli 环境检查（key ✅ 且缓存可用）
+        // 严格并发：Task(@Sendable) 闭包不能修改捕获的局部 var，统一用 box 容器承载结果。
+        final class SyncResult: @unchecked Sendable {
+            var prepared = false
+            var contacts: [ContactItem] = []
+            var loadError = ""
+            var count = 0
+            var exportError = ""
+        }
+        let result = SyncResult()
         let semaphore = DispatchSemaphore(value: 0)
-        var prepared = false
         Task {
-            prepared = await wxCli.isPreparedForQuery()
+            result.prepared = await wxCli.isPreparedForQuery()
             semaphore.signal()
         }
         semaphore.wait()
-        guard prepared else {
+        guard result.prepared else {
             AutoSyncScheduler.appendRunLog("auto-sync skipped: wx-cli 未就绪（密钥/缓存不可用），先运行一次 GUI「准备数据」")
             return 0
         }
@@ -124,26 +132,24 @@ enum HeadlessCLI {
         // 会话列表（子集过滤）
         let subset = parseContactIDs(ExportModePreferences.autoSyncContactIDs)
         let semaphore2 = DispatchSemaphore(value: 0)
-        var contacts: [ContactItem] = []
-        var loadError = ""
         Task {
             do {
-                contacts = try await wxCli.loadSessions(log: { _ in }, progress: { _ in })
+                result.contacts = try await wxCli.loadSessions(log: { _ in }, progress: { _ in })
             } catch {
-                loadError = error.localizedDescription
+                result.loadError = error.localizedDescription
             }
             semaphore2.signal()
         }
         semaphore2.wait()
-        guard loadError.isEmpty else {
-            AutoSyncScheduler.appendRunLog("auto-sync failed: 会话加载失败（\(loadError)）")
+        guard result.loadError.isEmpty else {
+            AutoSyncScheduler.appendRunLog("auto-sync failed: 会话加载失败（\(result.loadError)）")
             return 1
         }
         let targets: [ContactItem]
         if subset.isEmpty {
-            targets = contacts
+            targets = result.contacts
         } else {
-            targets = contacts.filter { subset.contains($0.id) }
+            targets = result.contacts.filter { subset.contains($0.id) }
         }
 
         var totalKept = 0
@@ -158,19 +164,19 @@ enum HeadlessCLI {
             try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
             let sem = DispatchSemaphore(value: 0)
-            var count = 0
-            var exportError = ""
+            result.count = 0
+            result.exportError = ""
             Task {
                 do {
-                    count = try await wxCli.export(contact: contact, outputDir: tempDir, includeMedia: false, log: { _ in })
+                    result.count = try await wxCli.export(contact: contact, outputDir: tempDir, includeMedia: false, log: { _ in })
                 } catch {
-                    exportError = error.localizedDescription
+                    result.exportError = error.localizedDescription
                 }
                 sem.signal()
             }
             sem.wait()
-            guard exportError.isEmpty else {
-                AutoSyncScheduler.appendRunLog("auto-sync \(contact.displayName) 导出失败：\(exportError)")
+            guard result.exportError.isEmpty else {
+                AutoSyncScheduler.appendRunLog("auto-sync \(contact.displayName) 导出失败：\(result.exportError)")
                 continue
             }
 
@@ -178,8 +184,8 @@ enum HeadlessCLI {
             let exportDirPath = base.path
             let lastTs = IncrementalExport.loadCursor(contactID: contact.id, exportDir: exportDirPath)
             if let lastTs {
-                count = IncrementalExport.filterArtifacts(in: tempDir, contactID: contact.id, after: lastTs, log: { _ in })
-                if count == 0 {
+                result.count = IncrementalExport.filterArtifacts(in: tempDir, contactID: contact.id, after: lastTs, log: { _ in })
+                if result.count == 0 {
                     AutoSyncScheduler.appendRunLog("no-change \(contact.displayName)（\(contact.id)）")
                     continue
                 }
@@ -199,9 +205,9 @@ enum HeadlessCLI {
             let contactDir = base.appendingPathComponent(contact.displayName, isDirectory: true)
             try? FileManager.default.createDirectory(at: contactDir, withIntermediateDirectories: true)
             copyTextArtifacts(from: tempDir, to: contactDir)
-            totalKept += count
+            totalKept += result.count
             anyChange = true
-            AutoSyncScheduler.appendRunLog("changed \(contact.displayName)：\(count) 条新增")
+            AutoSyncScheduler.appendRunLog("changed \(contact.displayName)：\(result.count) 条新增")
         }
 
         if !anyChange {

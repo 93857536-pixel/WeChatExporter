@@ -69,9 +69,46 @@ jobs:
           name: windows
           path: WeChatExporter-Windows-x64.zip
 
+  build-linux:
+    name: Build Linux (deb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri v2 system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: linux/src-tauri
+
+      - name: Run unit tests
+        working-directory: linux/src-tauri
+        run: cargo test
+
+      - name: Build Tauri app (deb)
+        working-directory: linux/src-tauri
+        run: cargo tauri build --bundles deb
+
+      - name: Create zip
+        run: |
+          zip -r WeChatExporter-Linux-x86_64.deb.zip \
+            linux/src-tauri/target/release/bundle/deb/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: WeChatExporter-Linux-x86_64.deb.zip
+
   release:
     name: Publish GitHub Release
-    needs: [build-macos, build-windows]
+    needs: [build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
