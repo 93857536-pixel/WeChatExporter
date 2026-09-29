@@ -53,7 +53,7 @@ public static class HeadlessCli
     {
         var info = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-        if (string.IsNullOrWhiteSpace(info)) return "2.19.0";
+        if (string.IsNullOrWhiteSpace(info)) return "2.19.1";
         var plus = info.IndexOf('+');
         return plus >= 0 ? info[..plus] : info;
     }

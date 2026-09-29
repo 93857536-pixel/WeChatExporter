@@ -1,6 +1,6 @@
 {
   "name": "wechat-exporter-linux",
-  "version": "2.19.0",
+  "version": "2.19.1",
   "description": "WeChatExporter Linux 端 (Tauri v2 + Rust 核心 + 原生 Web 前端)",
   "private": true,
   "type": "module",

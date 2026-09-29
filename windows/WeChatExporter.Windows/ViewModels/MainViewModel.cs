@@ -1058,7 +1058,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             else
             {
                 AppendLog($"自动加载失败：{ex.Message}");
-                AppendLog("首次使用请点击「准备数据」。");
+                // #38：密钥失配导致的解密失败已由 WxCliService 自动重扫过密钥，
+                // 此时再提示「首次使用请点击准备数据」会误导用户（数据其实已就绪、只是密钥失效）。
+                if (ex.Message.Contains("无法解密", StringComparison.Ordinal)
+                    || ex.Message.Contains("密钥", StringComparison.Ordinal))
+                {
+                    AppendLog("已自动尝试重新扫描密钥。若仍失败，请点击「准备数据」查看完整过程，并把日志反馈到 GitHub Issues。");
+                }
+                else
+                {
+                    AppendLog("首次使用请点击「准备数据」。");
+                }
             }
         }
     }

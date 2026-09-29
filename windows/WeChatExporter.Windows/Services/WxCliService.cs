@@ -17,12 +17,25 @@ public sealed class WxCliService
     // 抛出的异常会触发应用层数据目录检测 + 内存密钥提取兜底，避免界面卡死在准备阶段。
     private const int InitTimeoutSeconds = 240;      // init / init --force（扫描密钥 + 解密数据库）
     private const int SessionsTimeoutSeconds = 300;  // sessions --json -n 999999
+    private const int ProbeTimeoutSeconds = 120;     // 缓存密钥可用性探测（sessions --json -n 1）
     private const int ExportTimeoutSeconds = 600;    // export --limit 999999（超大聊天记录）
 
     // wx.exe（闭源）内部 daemon 启动失败标记：wx-cli 每次执行命令前自动拉起 wx-daemon 子进程，
     // N 秒内连不上 named pipe \\.\pipe\wx-cli-daemon 即报「启动超时」并退出（残留 pid / 杀软拦截 / 预热慢）。
     private const string DaemonStartTimeoutMarker = "wx-daemon 启动超时";
     private const string DaemonStartFailedMarker = "无法启动 daemon 进程";
+
+    // 解密失败标记：wx.exe（闭源）在 sessions / export 等命令里解不开数据库时输出
+    // 「错误: 无法解密 <db>」（如 session/session.db、sns/sns.db）并以非 0 退出。
+    // 典型场景：微信升级 / 重装 / 换号后 rawKey 轮换，all_keys.json 里的旧密钥与数据库不匹配（#38）。
+    private const string DecryptFailureMarker = "无法解密";
+
+    /// <summary>判断 wx-cli 输出/异常消息是否表示「数据库无法解密」（密钥与数据库不匹配）。</summary>
+    private static bool IsDecryptFailure(string output) =>
+        output.Contains(DecryptFailureMarker, StringComparison.Ordinal)
+        || output.Contains("failed to decrypt", StringComparison.OrdinalIgnoreCase)
+        || output.Contains("cannot decrypt", StringComparison.OrdinalIgnoreCase)
+        || output.Contains("decrypt failed", StringComparison.OrdinalIgnoreCase);
 
     // daemon status 输出为中文（"wx-daemon 运行中 (PID x)" / "wx-daemon 未运行"），
     // 旧代码用 Contains("ready"/"running") 对真实输出永远为 false，导致每次强制 init --force。
@@ -142,13 +155,48 @@ public sealed class WxCliService
                 log("使用已保存的密钥与缓存");
                 progress?.Invoke(tracker.Warmup("正在同步本地缓存…"));
                 var cachedOutput = await RunAsync(["init"], null, log, cancellationToken);
+
+                var needFullReinit = false;
                 if (HasZeroKeysExtracted(cachedOutput))
                 {
                     // 缓存密钥失效（微信重装 / 升级 / 换号导致 rawKey 变化）：清除失效密钥后重新完整初始化（#33）
                     log("已保存的密钥已失效（wx-cli 提取到 0 个数据库密钥），正在重新初始化…");
+                    needFullReinit = true;
+                }
+                else
+                {
+                    // #38：wx-cli 的 init 只要读到 config/all_keys.json 就报「已初始化」，
+                    // 密钥与数据库不匹配时（微信升级后的密钥轮换）不会报错，直到 sessions/export
+                    // 才失败并输出「错误: 无法解密 <db>」。旧代码在此形成死循环：用户点「准备数据」
+                    // 每次都走缓存路径、永远不重扫密钥，界面反复提示"无法解密 session.db"。
+                    // 因此这里补一次真实读取探测，确认缓存密钥确实能解开数据库。
+                    progress?.Invoke(tracker.Warmup("正在校验缓存密钥…"));
+                    log("正在校验缓存密钥是否可用…");
+                    if (!await VerifyCacheReadableAsync(log, cancellationToken))
+                    {
+                        log("已保存的密钥无法解密数据库（微信升级 / 重装 / 换号会导致密钥轮换），正在重新扫描密钥…");
+                        needFullReinit = true;
+                    }
+                }
+
+                if (needFullReinit)
+                {
                     try { await ClearSavedKeysAsync(configPath, log); }
                     catch (Exception ex) { log($"清除失效密钥失败：{ex.Message}"); }
                     await InitFreshAsync(configPath, savedDbDir, log, progress, tracker, cancellationToken);
+
+                    // 重新初始化后再校验一次：仍解不开说明内置 wx-cli 无法处理该微信版本，
+                    // 直接给出可操作的原因，而不是让用户在「准备数据 → 无法解密」之间反复空转（#38）。
+                    progress?.Invoke(tracker.Warmup("正在复核缓存密钥…"));
+                    if (!await VerifyCacheReadableAsync(log, cancellationToken))
+                    {
+                        throw new InvalidOperationException(
+                            "已重新扫描密钥并重新初始化，但仍无法解密微信数据库。常见原因："
+                            + "1) 微信版本过新，内置 wx-cli 暂不支持（请更新 WeChatExporter 或等待适配）；"
+                            + "2) 微信未登录或未保持运行（无法从内存读取密钥）；"
+                            + "3) 未以管理员身份运行本程序（无法读取微信进程内存）。"
+                            + "排查后可点击「准备数据」重试，或把上方完整日志反馈到 GitHub Issues。");
+                    }
                 }
             }
 
@@ -667,25 +715,124 @@ public sealed class WxCliService
 
         try
         {
-            // Windows wx-cli sessions 仅支持 limit，无 offset；使用超大 limit 且带超时兜底
-            var output = await RunAsync(
-                ["sessions", "--json", "-n", "999999"],
-                SessionsTimeoutSeconds,
-                log,
-                cancellationToken);
-
-            tickCts.Cancel();
-
-            var items = ParseSessions(output);
-            var count = items.Count;
-            progress?.Invoke(tracker.Actual(count, count, $"已加载 {count} 个会话"));
-            progress?.Invoke(tracker.Complete($"已加载 {count} 个会话"));
-            log($"已加载 {count} 个会话");
-            return items;
+            try
+            {
+                return await QuerySessionsAsync(log, tracker, progress, cancellationToken);
+            }
+            catch (Exception ex) when (IsDecryptFailure(ex.Message))
+            {
+                // #38：缓存密钥与数据库不匹配时 wx-cli 报「错误: 无法解密 session.db」。
+                // 旧代码把错误直接抛给用户，而「准备数据」又走缓存路径（拿同一份失效密钥），
+                // 导致启动自动加载 + 手动准备数据都在同一个错误上空转、无法自愈。
+                // 这里自动清除失效密钥并重新扫描（含应用层内存扫描兜底），然后重试一次。
+                log("检测到数据库解密失败（已保存的密钥与数据库不匹配），正在自动重新扫描密钥…");
+                progress?.Invoke(tracker.Warmup("检测到密钥失效，正在重新扫描密钥…"));
+                await RecoverStaleKeysAsync(log, progress, tracker, cancellationToken);
+                log("密钥已更新，正在重新读取会话列表…");
+                progress?.Invoke(tracker.Warmup("正在重新读取会话数据…"));
+                return await QuerySessionsAsync(log, tracker, progress, cancellationToken);
+            }
         }
         finally
         {
             tickCts.Cancel();
+        }
+    }
+
+    /// <summary>执行一次 sessions 查询并解析结果（LoadSessionsAsync 的查询主体，便于自愈后重试）。</summary>
+    private async Task<IReadOnlyList<ContactItem>> QuerySessionsAsync(
+        Action<string> log,
+        LoadProgressTracker tracker,
+        Action<LoadProgressUpdate>? progress,
+        CancellationToken cancellationToken)
+    {
+        // Windows wx-cli sessions 仅支持 limit，无 offset；使用超大 limit 且带超时兜底
+        var output = await RunAsync(
+            ["sessions", "--json", "-n", "999999"],
+            SessionsTimeoutSeconds,
+            log,
+            cancellationToken);
+
+        var items = ParseSessions(output);
+        var count = items.Count;
+        progress?.Invoke(tracker.Actual(count, count, $"已加载 {count} 个会话"));
+        progress?.Invoke(tracker.Complete($"已加载 {count} 个会话"));
+        log($"已加载 {count} 个会话");
+        return items;
+    }
+
+    /// <summary>
+    /// 「无法解密」自愈：清除失效密钥（all_keys.json + config 里的 keys_file/your_wxid），
+    /// 再走完整初始化（init --force → 数据目录检测 → 应用层内存密钥提取兜底）（#38）。
+    /// </summary>
+    private async Task RecoverStaleKeysAsync(
+        Action<string> log,
+        Action<LoadProgressUpdate>? progress,
+        LoadProgressTracker tracker,
+        CancellationToken cancellationToken)
+    {
+        var configPath = GetConfigPath();
+        var savedDbDir = await ReadSavedDbDirAsync(configPath);
+        try { await ClearSavedKeysAsync(configPath, log); }
+        catch (Exception ex) { log($"清除失效密钥失败：{ex.Message}"); }
+        await InitFreshAsync(configPath, savedDbDir, log, progress, tracker, cancellationToken);
+    }
+
+    /// <summary>读取 config.json 中的 db_dir（用户自定义微信数据目录），失败返回 null。</summary>
+    private static async Task<string?> ReadSavedDbDirAsync(string configPath)
+    {
+        try
+        {
+            if (!File.Exists(configPath)) return null;
+            using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(configPath));
+            if (doc.RootElement.TryGetProperty("db_dir", out var el)
+                && el.ValueKind == JsonValueKind.String)
+            {
+                var value = el.GetString();
+                if (!string.IsNullOrWhiteSpace(value)) return value;
+            }
+        }
+        catch
+        {
+            // 读取失败按「无自定义目录」处理，交由自动检测兜底
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 校验「已保存的密钥 + 解密缓存」是否真的可用：跑一次最小查询（sessions --json -n 1）。
+    /// 返回 false 仅表示 wx-cli 明确报了「无法解密 &lt;db&gt;」（密钥与数据库不匹配，需重扫密钥）；
+    /// 探测本身的其他失败（超时 / daemon 异常等）不判定缓存失效，返回 true 交由既有流程处理（#38）。
+    /// </summary>
+    private async Task<bool> VerifyCacheReadableAsync(Action<string> log, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var output = await RunAsync(
+                ["sessions", "--json", "-n", "1"],
+                ProbeTimeoutSeconds,
+                log,
+                cancellationToken);
+            if (IsDecryptFailure(output))
+            {
+                log("缓存密钥校验失败：wx-cli 报告无法解密数据库");
+                return false;
+            }
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsDecryptFailure(ex.Message))
+        {
+            log($"缓存密钥校验失败：{TrimFailureOutput(ex.Message)}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            log($"缓存密钥校验未完成（{ex.Message}），继续按原流程加载…");
+            return true;
         }
     }
 
