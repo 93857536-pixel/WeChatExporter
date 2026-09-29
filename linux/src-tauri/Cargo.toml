@@ -1,6 +1,6 @@
 [package]
 name = "wechat-exporter-linux"
-version = "2.19.1"
+version = "2.19.2"
 description = "WeChatExporter Linux 端：Tauri v2 + Rust 核心，导出已解密微信 SQLite 数据"
 authors = ["linminhao"]
 edition = "2021"

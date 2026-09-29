@@ -92,6 +92,36 @@ public static class EncryptedExport
     /// <summary>解密 .wxenc 到目标目录，返回还原的文件数</summary>
     public static int DecryptFile(string file, string password, string destDir, Action<string>? log = null)
     {
+        var entries = ReadEntries(file, password);
+
+        Directory.CreateDirectory(destDir);
+        foreach (var (path, data) in entries)
+        {
+            var native = path.Replace('/', Path.DirectorySeparatorChar);
+            var url = Path.GetFullPath(Path.Combine(destDir, native));
+            Directory.CreateDirectory(Path.GetDirectoryName(url)!);
+            File.WriteAllBytes(url, data);
+        }
+        log?.Invoke($"解密完成：{entries.Count} 个文件 → {destDir}");
+        return entries.Count;
+    }
+
+    /// <summary>
+    /// 只解密并解析归档条目（不落盘），返回 相对路径 → 字节数。
+    /// 用于「加密后、删除明文前」的完整性校验：校验不过就不删明文，避免用户两头空。
+    /// </summary>
+    public static Dictionary<string, long> Inspect(string file, string password)
+    {
+        var entries = ReadEntries(file, password);
+        var result = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (path, data) in entries)
+            result[path] = data.Length;
+        return result;
+    }
+
+    /// <summary>读取并解密 .wxenc，返回 相对路径 → 内容（内存，不落盘）。</summary>
+    private static Dictionary<string, byte[]> ReadEntries(string file, string password)
+    {
         if (string.IsNullOrEmpty(password)) throw new EncryptedExportException("密码不能为空");
         var raw = File.ReadAllBytes(file);
         if (raw.Length <= HeaderLen + GcmTagLen) throw new EncryptedExportException("不是有效的 .wxenc 文件（过短）");
@@ -154,17 +184,7 @@ public static class EncryptedExport
             cursor += (int)dataLen;
             entries[path] = data;
         }
-
-        Directory.CreateDirectory(destDir);
-        foreach (var (path, data) in entries)
-        {
-            var native = path.Replace('/', Path.DirectorySeparatorChar);
-            var url = Path.GetFullPath(Path.Combine(destDir, native));
-            Directory.CreateDirectory(Path.GetDirectoryName(url)!);
-            File.WriteAllBytes(url, data);
-        }
-        log?.Invoke($"解密完成：{entries.Count} 个文件 → {destDir}");
-        return entries.Count;
+        return entries;
     }
 
     /// <summary>密钥：PBKDF2-HMAC-SHA256(password, salt, 100_000, 32)，与 Swift 端字节一致</summary>

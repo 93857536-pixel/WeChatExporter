@@ -591,14 +591,50 @@ final class AppViewModel: ObservableObject {
             ExportModePreferences.lastExportDir = base.path
 
             // 加密导出（密码非空 → 整体加密为 .wxenc 并删除明文目录）
+            // #39：归档必须写在导出根目录之外。旧版把 .wxenc 写进导出根目录，紧接着的
+            // removeItem(at: base) 会把归档连同全部明文一起删掉——用户既拿不到加密包、
+            // 又丢掉原有导出数据，界面还提示「已加密为 …」。
+            var archivePath: URL?
             if !exportPassword.isEmpty {
-                let encFile = base.appendingPathComponent("加密导出.wxenc")
-                _ = try EncryptedExport.encryptDirectory(base, password: exportPassword, to: encFile, log: logHandler())
-                try FileManager.default.removeItem(at: base)
-                summary.append("🔒 已加密为 \(encFile.lastPathComponent)，明文目录已删除；用「解密导出」恢复")
+                let rootURL = URL(fileURLWithPath: base.path).standardizedFileURL
+                if rootURL.path == "/" || rootURL.deletingLastPathComponent().path == rootURL.path {
+                    throw AppError.exportFailed("导出目录是磁盘根目录，已取消加密导出以避免误删整盘数据。请改选一个具体文件夹后重试。")
+                }
+                let parent = rootURL.deletingLastPathComponent()
+                let folderName = rootURL.lastPathComponent
+                var candidate = parent.appendingPathComponent(folderName + ".wxenc")
+                if FileManager.default.fileExists(atPath: candidate.path) {
+                    let stamp = DateFormatter()
+                    stamp.dateFormat = "yyyyMMdd_HHmmss"
+                    candidate = parent.appendingPathComponent("\(folderName)-\(stamp.string(from: Date())).wxenc")
+                }
+                archivePath = candidate
+
+                let plainCount = (try? FileManager.default.subpathsOfDirectory(atPath: rootURL.path)
+                    .reduce(into: 0) { acc, rel in
+                        var isDir: ObjCBool = false
+                        if FileManager.default.fileExists(atPath: rootURL.appendingPathComponent(rel).path, isDirectory: &isDir), !isDir.boolValue {
+                            acc += 1
+                        }
+                    }) ?? 0
+
+                _ = try EncryptedExport.encryptDirectory(rootURL, password: exportPassword, to: candidate, log: logHandler())
+
+                // 删明文前先校验归档可解且条目数一致：校验不过就保留明文，绝不让用户两头空
+                let inspected = try EncryptedExport.inspect(candidate, password: exportPassword)
+                if inspected.count != plainCount {
+                    throw AppError.exportFailed(
+                        "加密包校验未通过（归档 \(inspected.count) 项 / 明文 \(plainCount) 项），已保留明文目录以免数据丢失：\n\(rootURL.path)")
+                }
+
+                try FileManager.default.removeItem(at: rootURL)
+                appendLog("加密包校验通过（\(inspected.count) 个文件），已删除明文目录：\(rootURL.path)")
+                summary.append("🔒 已加密为 \(candidate.path)（\(inspected.count) 个文件），明文目录已删除；用「解密导出」恢复")
             }
 
-            alertMessage = "已导出 \(selected.count) 个会话到：\n\(base.path)\n\n\(summary.joined(separator: "\n"))\n\n导出方式：\(mode.displayName)"
+            let targetLine = archivePath.map { "已导出 \(selected.count) 个会话并加密为：\n\($0.path)" }
+                ?? "已导出 \(selected.count) 个会话到：\n\(base.path)"
+            alertMessage = "\(targetLine)\n\n\(summary.joined(separator: "\n"))\n\n导出方式：\(mode.displayName)"
             showAlert = true
         } catch {
             presentError(error.localizedDescription, stage: DiagnosticUploader.stageExport)

@@ -976,15 +976,48 @@ public sealed class MainViewModel : INotifyPropertyChanged
             AppSettings.LastExportDir = ExportPath;
 
             // 加密导出（密码非空 → 整体加密为 .wxenc 并删除明文目录）
+            // #39：归档必须写在导出根目录之外。旧版把 .wxenc 写进导出根目录，紧接着的
+            // Directory.Delete(ExportPath, true) 会把归档连同全部明文一起删掉——用户既拿不到
+            // 加密包、又丢掉原有导出数据，界面还提示「已加密为 …」。
+            string? archivePath = null;
             if (!string.IsNullOrEmpty(ExportPassword))
             {
-                var encFile = Path.Combine(ExportPath, "加密导出.wxenc");
-                EncryptedExport.EncryptDirectory(ExportPath, ExportPassword, encFile, AppendLog);
-                Directory.Delete(ExportPath, true);
-                summary.Add($"🔒 已加密为 {encFile}，明文目录已删除；用「解密导出」恢复");
+                var rootDir = Path.GetFullPath(ExportPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var parentDir = Path.GetDirectoryName(rootDir);
+                var folderName = Path.GetFileName(rootDir);
+                if (string.IsNullOrWhiteSpace(parentDir) || string.IsNullOrWhiteSpace(folderName))
+                {
+                    throw new InvalidOperationException(
+                        "导出目录是磁盘根目录，已取消加密导出以避免误删整盘数据。请改选一个具体文件夹后重试。");
+                }
+
+                var candidate = Path.Combine(parentDir, folderName + ".wxenc");
+                if (File.Exists(candidate))
+                    candidate = Path.Combine(parentDir, $"{folderName}-{DateTime.Now:yyyyMMdd_HHmmss}.wxenc");
+                archivePath = candidate;
+
+                var plainCount = Directory.EnumerateFiles(rootDir, "*", SearchOption.AllDirectories).Count();
+                EncryptedExport.EncryptDirectory(rootDir, ExportPassword, archivePath, AppendLog);
+
+                // 删明文前先校验归档可解且条目数一致：校验不过就保留明文，绝不让用户两头空
+                var inspected = EncryptedExport.Inspect(archivePath, ExportPassword);
+                if (inspected.Count != plainCount)
+                {
+                    throw new InvalidOperationException(
+                        $"加密包校验未通过（归档 {inspected.Count} 项 / 明文 {plainCount} 项），"
+                        + $"已保留明文目录以免数据丢失：\n{rootDir}");
+                }
+
+                Directory.Delete(rootDir, true);
+                AppendLog($"加密包校验通过（{inspected.Count} 个文件），已删除明文目录：{rootDir}");
+                summary.Add($"🔒 已加密为 {archivePath}（{EncryptedExport.FormatSize(new FileInfo(archivePath).Length)}，{inspected.Count} 个文件），明文目录已删除；用「解密导出」恢复");
             }
 
-            ShowAlert($"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
+            var targetLine = archivePath is null
+                ? $"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}"
+                : $"已导出 {SelectedContacts.Count} 个单文件并加密为：\n{archivePath}";
+            ShowAlert($"{targetLine}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
         }
         catch (Exception ex)
         {

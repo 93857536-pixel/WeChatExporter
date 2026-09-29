@@ -67,7 +67,7 @@ public static class AnonymizationService
             string text;
             try { text = File.ReadAllText(file); }
             catch { continue; }
-            var before = text.Length;
+            var original = text;
 
             // 先 PII（避免与名称替换互相干扰）
             if (settings.MaskPii)
@@ -76,11 +76,14 @@ public static class AnonymizationService
                 text = MaskIdCard(text);
                 text = MaskEmail(text);
             }
-            foreach (var (original, alias) in ordered)
+            foreach (var (originalName, alias) in ordered)
             {
-                text = text.Replace(original, alias);
+                text = text.Replace(originalName, alias);
             }
-            if (text.Length != before)
+            // ⚠️ 必须按「内容是否变化」判定写回，不能用长度判定：
+            // 3 字姓名（张三丰→用户A）与手机号/身份证掩码都是等长替换，长度不变会被漏写，
+            // 导致脱敏静默失效却提示「脱敏完成」（macOS 端用的是内容比对，此处对齐）。
+            if (!string.Equals(text, original, StringComparison.Ordinal))
             {
                 try
                 {

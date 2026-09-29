@@ -92,8 +92,30 @@ public enum EncryptedExport {
         to destDir: URL,
         log: @escaping (String) -> Void
     ) throws -> Int {
-        guard !password.isEmpty else { throw Error(message: "密码不能为空") }
+        let entries = try readEntries(file, password: password)
         let fm = FileManager.default
+        try fm.createDirectory(at: destDir, withIntermediateDirectories: true)
+        for (path, data) in entries {
+            // blob 内路径统一用 /，转成当前平台分隔符（macOS 下为 /，no-op）
+            let native = path.replacingOccurrences(of: "/", with: nativeSeparator)
+            let url = destDir.appendingPathComponent(native)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url)
+        }
+        log("解密完成：\(entries.count) 个文件 → \(destDir.path)")
+        return entries.count
+    }
+
+    /// 只解密并解析归档条目（不落盘），返回 相对路径 → 字节数。
+    /// 用于「加密后、删除明文前」的完整性校验：校验不过就不删明文，避免用户两头空。
+    public static func inspect(_ file: URL, password: String) throws -> [String: Int] {
+        let entries = try readEntries(file, password: password)
+        return entries.mapValues { $0.count }
+    }
+
+    /// 读取并解密 .wxenc，返回 相对路径 → 内容（内存，不落盘）。
+    private static func readEntries(_ file: URL, password: String) throws -> [String: Data] {
+        guard !password.isEmpty else { throw Error(message: "密码不能为空") }
         let raw = try Data(contentsOf: file)
         guard raw.count > headerLen + gcmTagLen else { throw Error(message: "不是有效的 .wxenc 文件（过短）") }
         guard Array(raw.prefix(5)) == magic else { throw Error(message: "不是有效的 .wxenc 文件（魔数不符）") }
@@ -143,17 +165,7 @@ public enum EncryptedExport {
             cursor += dataLen
             entries[path] = data
         }
-
-        try fm.createDirectory(at: destDir, withIntermediateDirectories: true)
-        for (path, data) in entries {
-            // blob 内路径统一用 /，转成当前平台分隔符（macOS 下为 /，no-op）
-            let native = path.replacingOccurrences(of: "/", with: nativeSeparator)
-            let url = destDir.appendingPathComponent(native)
-            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: url)
-        }
-        log("解密完成：\(entries.count) 个文件 → \(destDir.path)")
-        return entries.count
+        return entries
     }
 
     // MARK: - 密钥派生（纯 CryptoKit，与 .NET Rfc2898DeriveBytes.Pbkdf2 字节一致）

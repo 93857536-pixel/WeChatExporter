@@ -760,7 +760,9 @@ enum SingleFileExporter {
 
     private static func formatTimestamp(_ ts: Int?) -> String {
         guard let ts, ts > 0 else { return "" }
-        let date = Date(timeIntervalSince1970: TimeInterval(ts))
+        // 毫秒级时间戳自动降为秒（与 Windows 端 FormatTimestamp 同口径）
+        let seconds = ts > 9_999_999_999 ? ts / 1000 : ts
+        let date = Date(timeIntervalSince1970: TimeInterval(seconds))
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm:ss"
         f.timeZone = TimeZone(identifier: "Asia/Shanghai")

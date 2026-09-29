@@ -341,7 +341,7 @@ internal static class SingleFileExporter
 
         var time = GetString(row, "time", "timestamp_str")
             ?? GetString(source, "time", "timestamp_str")
-            ?? FormatTimestamp(GetInt(source, "create_time", "timestamp") ?? GetInt(row, "create_time", "timestamp"));
+            ?? FormatTimestamp(GetTimestamp(source, "create_time", "timestamp") ?? GetTimestamp(row, "create_time", "timestamp"));
 
         var sender = GetString(row, "sender_display_name", "sender", "from", "display_name")
             ?? GetString(source, "sender_display_name", "sender")
@@ -402,10 +402,27 @@ internal static class SingleFileExporter
         return null;
     }
 
-    private static string FormatTimestamp(int? ts)
+    /// <summary>
+    /// 读取时间戳字段：必须用 Int64。毫秒级时间戳（约 1.7e12）与 2038 年后的秒级值都超出 Int32，
+    /// 旧实现用 TryGetInt32 会静默返回 null，导致单文件导出的「时间」列整列为空。
+    /// </summary>
+    private static long? GetTimestamp(JsonElement el, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (!el.TryGetProperty(key, out var v)) continue;
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var n)) return n;
+            if (v.ValueKind == JsonValueKind.String && long.TryParse(v.GetString(), out var parsed)) return parsed;
+        }
+        return null;
+    }
+
+    private static string FormatTimestamp(long? ts)
     {
         if (ts is null or <= 0) return "";
-        var dt = DateTimeOffset.FromUnixTimeSeconds(ts.Value).ToOffset(TimeSpan.FromHours(8));
+        // 毫秒级自动降为秒（与 WxCliService.FormatTime 同口径）
+        var seconds = ts.Value > 9_999_999_999 ? ts.Value / 1000 : ts.Value;
+        var dt = DateTimeOffset.FromUnixTimeSeconds(seconds).ToOffset(TimeSpan.FromHours(8));
         return dt.ToString("yyyy-MM-dd HH:mm:ss");
     }
 
