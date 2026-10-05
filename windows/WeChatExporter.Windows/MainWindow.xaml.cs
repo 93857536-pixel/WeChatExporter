@@ -98,6 +98,35 @@ public partial class MainWindow : Window
 
     private void UninstallAutoSync_Click(object sender, RoutedEventArgs e)
         => _viewModel.UninstallAutoSyncTask();
+
+    // MARK: - 云备份（v2.20）事件
+
+    private async void CloudSendCode_Click(object sender, RoutedEventArgs e)
+        => await _viewModel.SendCloudCodeAsync();
+
+    private async void CloudLogin_Click(object sender, RoutedEventArgs e)
+        => await _viewModel.CloudLoginAsync();
+
+    private void CloudLogout_Click(object sender, RoutedEventArgs e)
+        => _viewModel.CloudLogout();
+
+    private async void BackupToCloud_Click(object sender, RoutedEventArgs e)
+        => await _viewModel.BackupToCloudAsync(CloudPwdBox.Password);
+
+    private async void CloudRefresh_Click(object sender, RoutedEventArgs e)
+        => await _viewModel.RefreshCloudBackupAsync();
+
+    private async void CloudDownload_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: Models.CloudBackupItem item })
+            await _viewModel.DownloadBackupAsync(item, CloudPwdBox.Password);
+    }
+
+    private async void CloudDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: Models.CloudBackupItem item })
+            await _viewModel.DeleteBackupAsync(item);
+    }
 }
 
 public sealed class InverseBooleanConverter : IValueConverter

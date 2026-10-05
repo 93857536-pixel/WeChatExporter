@@ -26,6 +26,10 @@ all_keys.json
 *.db-wal
 *.db-shm
 
+# 应用本地状态（%APPDATA%，含登录 token —— 绝不提交）
+**/cloud-settings.json
+**/settings.json
+
 # macOS
 .DS_Store
 .AppleDouble

@@ -224,6 +224,76 @@
                     </StackPanel>
                 </GroupBox>
 
+                <GroupBox Header="云备份（v2.20）" Margin="0,0,0,16" Padding="12">
+                    <StackPanel>
+                        <!-- 未登录：登录/注册表单 -->
+                        <StackPanel Visibility="{Binding CloudNotLoggedIn, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBox Text="{Binding CloudTarget, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="240" Padding="6,4" ToolTip="邮箱或 11 位手机号"/>
+                                <Button Content="{Binding CloudSendCodeText}" Padding="10,4" Margin="8,0,0,0"
+                                        IsEnabled="{Binding CloudSendCodeEnabled}" Click="CloudSendCode_Click"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBox Text="{Binding CloudCode, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="110" Padding="6,4" ToolTip="6 位验证码"/>
+                                <TextBox Text="{Binding CloudHandleInput, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="130" Padding="6,4" Margin="8,0,0,0"
+                                         ToolTip="昵称（首次注册必填；已有账号留空 = 登录）"/>
+                                <Button Content="登录 / 注册" Padding="10,4" Margin="8,0,0,0" Click="CloudLogin_Click"/>
+                            </StackPanel>
+                            <TextBlock Text="首次使用：输入邮箱/手机号 → 发送验证码 → 填 6 位验证码 + 昵称完成注册；已有账号昵称留空即登录。"
+                                       Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                        </StackPanel>
+
+                        <!-- 已登录：账号信息 + 登出 -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6"
+                                    Visibility="{Binding CloudLoggedIn, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding CloudAccountText}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding CloudUsageText}" Foreground="Gray" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                            <Button Content="登出" Padding="10,4" Margin="12,0,0,0" Click="CloudLogout_Click"/>
+                        </StackPanel>
+
+                        <Separator Margin="0,4,0,6"/>
+
+                        <!-- 备份操作（需登录） -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button Content="备份到云端" Padding="10,6" Margin="0,0,8,0" Click="BackupToCloud_Click"/>
+                            <Button Content="刷新列表" Padding="10,6" Click="CloudRefresh_Click"/>
+                        </StackPanel>
+                        <PasswordBox x:Name="CloudPwdBox" Margin="0,0,0,6"
+                                     ToolTip="备份密码：上传时设置，下载时输入以解密。密码只存内存，绝不上传。"/>
+                        <ProgressBar Height="6" Minimum="0" Maximum="1"
+                                     Value="{Binding CloudProgress, Mode=OneWay}" Margin="0,0,0,4"
+                                     Visibility="{Binding CloudLoggedIn, Converter={StaticResource BoolToVis}}"/>
+                        <TextBlock Text="{Binding CloudProgressText}" Foreground="Gray" FontSize="11"
+                                   TextWrapping="Wrap" Margin="0,0,0,6"/>
+                        <ListBox x:Name="CloudBackupList" ItemsSource="{Binding BackupItems}" MaxHeight="200"
+                                 IsEnabled="{Binding CloudLoggedIn}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Subtitle}" Foreground="Gray" FontSize="11"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Content="下载" Padding="8,3" Tag="{Binding}" Click="CloudDownload_Click"/>
+                                            <Button Content="删除" Padding="8,3" Margin="6,0,0,0" Tag="{Binding}" Click="CloudDelete_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock Text="备份会把整个导出目录端到端加密为 wechat-export.wxenc 上传（同名覆盖，密码永不发给服务器）；下载拉回后本地输入密码解密。"
+                                   Foreground="Gray" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+
                 <GroupBox Header="导出目录" Margin="0,0,0,16" Padding="12">
                     <StackPanel>
                         <TextBox Text="{Binding ExportPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"/>

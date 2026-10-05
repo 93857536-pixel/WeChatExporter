@@ -31,6 +31,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // #39：长任务（准备数据/刷新/导出）支持取消，避免窗口「未响应」时用户只能杀进程
     private CancellationTokenSource? _cts;
 
+    // MARK: - 云备份（v2.20）
+    private readonly CloudBackupClient _cloud = new();
+    private string _cloudTarget = "";
+    private string _cloudCode = "";
+    private string _cloudHandleInput = "";
+    private string _cloudAccountText = "";
+    private string _cloudUsageText = "";
+    private bool _cloudLoggedIn;
+    private bool _cloudBusy;
+    private string _cloudSendCodeText = "发送验证码";
+    private bool _cloudSendCodeEnabled = true;
+    private string _cloudProgressText = "";
+    private double? _cloudProgress;
+
     public MainViewModel(WxCliService wxCli)
     {
         _wxCli = wxCli;
@@ -56,6 +70,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _calendarExtractEnabled = AppSettings.CalendarExtractEnabled;
         _autoSyncEnabled = AppSettings.AutoSyncEnabled;
         _autoSyncIntervalMinutes = AppSettings.AutoSyncIntervalMinutes;
+        // 云备份：从 cloud-settings.json 恢复登录态
+        var cloudState = CloudSettings.Load();
+        if (!string.IsNullOrEmpty(cloudState.Token))
+        {
+            _cloud.Token = cloudState.Token;
+            _cloudLoggedIn = true;
+            _cloudAccountText = string.IsNullOrEmpty(cloudState.Handle) ? cloudState.UserId : cloudState.Handle;
+            _ = RefreshCloudStateAsync();
+        }
         AppendLog(wxCli.IsBundled ? "使用内置 wx-cli（即装即用）" : "使用系统 wx-cli");
         if (!IsRunningAsAdmin)
             AppendLog("提示：首次「准备数据」建议以管理员身份运行（可点击下方按钮）");
@@ -66,6 +89,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICollectionView ContactsView { get; }
     public ObservableCollection<ContactItem> SelectedContacts { get; } = [];
     public ObservableCollection<string> Logs { get; }
+
+    /// <summary>云端备份清单（列表绑定）。</summary>
+    public ObservableCollection<CloudBackupItem> BackupItems { get; } = [];
 
     public bool IsRunningAsAdmin { get; }
 
@@ -672,6 +698,376 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             IsDownloadingWhisperModel = false;
         }
+    }
+
+    // MARK: - 云备份（v2.20）
+
+    public string CloudTarget
+    {
+        get => _cloudTarget;
+        set { if (_cloudTarget == value) return; _cloudTarget = value; OnPropertyChanged(); }
+    }
+
+    public string CloudCode
+    {
+        get => _cloudCode;
+        set { if (_cloudCode == value) return; _cloudCode = value; OnPropertyChanged(); }
+    }
+
+    public string CloudHandleInput
+    {
+        get => _cloudHandleInput;
+        set { if (_cloudHandleInput == value) return; _cloudHandleInput = value; OnPropertyChanged(); }
+    }
+
+    public string CloudAccountText
+    {
+        get => _cloudAccountText;
+        private set { if (_cloudAccountText == value) return; _cloudAccountText = value; OnPropertyChanged(); }
+    }
+
+    public string CloudUsageText
+    {
+        get => _cloudUsageText;
+        private set { if (_cloudUsageText == value) return; _cloudUsageText = value; OnPropertyChanged(); }
+    }
+
+    public bool CloudLoggedIn
+    {
+        get => _cloudLoggedIn;
+        private set
+        {
+            if (_cloudLoggedIn == value) return;
+            _cloudLoggedIn = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CloudNotLoggedIn));
+        }
+    }
+
+    /// <summary>未登录（用于显示登录表单）。</summary>
+    public bool CloudNotLoggedIn => !_cloudLoggedIn;
+
+    public bool CloudBusy
+    {
+        get => _cloudBusy;
+        private set { if (_cloudBusy == value) return; _cloudBusy = value; OnPropertyChanged(); }
+    }
+
+    public string CloudSendCodeText
+    {
+        get => _cloudSendCodeText;
+        private set { if (_cloudSendCodeText == value) return; _cloudSendCodeText = value; OnPropertyChanged(); }
+    }
+
+    public bool CloudSendCodeEnabled
+    {
+        get => _cloudSendCodeEnabled;
+        private set { if (_cloudSendCodeEnabled == value) return; _cloudSendCodeEnabled = value; OnPropertyChanged(); }
+    }
+
+    public string CloudProgressText
+    {
+        get => _cloudProgressText;
+        private set { if (_cloudProgressText == value) return; _cloudProgressText = value; OnPropertyChanged(); }
+    }
+
+    public double? CloudProgress
+    {
+        get => _cloudProgress;
+        private set { if (_cloudProgress == value) return; _cloudProgress = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>发送验证码（成功后倒计时禁用按钮）。</summary>
+    public async Task SendCloudCodeAsync()
+    {
+        var target = CloudTarget.Trim();
+        if (target.Length == 0) { ShowError("请先输入邮箱或手机号。"); return; }
+        var type = DetermineTargetType(target);
+        if (type is null) { ShowError("请输入有效的邮箱地址或 11 位手机号。"); return; }
+        if (CloudBusy) return;
+
+        CloudBusy = true;
+        try
+        {
+            AppendLog($"云备份：正在向 {target} 发送验证码…");
+            var expires = await _cloud.SendCodeAsync(type, target);
+            AppendLog($"云备份：验证码已发送（{expires} 秒内有效）。");
+            StartSendCodeCountdown();
+        }
+        catch (CloudApiException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            ShowError($"发送验证码失败：{ex.Message}");
+        }
+        finally
+        {
+            CloudBusy = false;
+        }
+    }
+
+    /// <summary>登录或注册：填了昵称走 /auth/register，否则 /auth/login（契约 handle 可选）。</summary>
+    public async Task CloudLoginAsync()
+    {
+        var target = CloudTarget.Trim();
+        var code = CloudCode.Trim();
+        var handle = CloudHandleInput.Trim();
+        if (target.Length == 0 || code.Length == 0) { ShowError("请输入账号和验证码。"); return; }
+        var type = DetermineTargetType(target);
+        if (type is null) { ShowError("请输入有效的邮箱地址或 11 位手机号。"); return; }
+        if (CloudBusy) return;
+
+        bool register = handle.Length > 0;
+        CloudBusy = true;
+        try
+        {
+            AppendLog(register ? "云备份：正在注册并登录…" : "云备份：正在登录…");
+            var (token, sessionId, h, userId) = await _cloud.RegisterOrLoginAsync(type, target, code, register ? handle : null, "win-wce", register);
+            _cloud.Token = token;
+            CloudSettings.Save(new CloudSettings.State { Token = token, SessionId = sessionId, Handle = h, UserId = userId });
+            CloudLoggedIn = true;
+            CloudAccountText = string.IsNullOrEmpty(h) ? (string.IsNullOrEmpty(userId) ? target : userId) : h;
+            CloudCode = "";
+            AppendLog($"云备份：已登录 {CloudAccountText}");
+            await RefreshCloudStateAsync();
+            ShowAlert("云端登录成功。");
+        }
+        catch (CloudApiException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            ShowError($"登录失败：{ex.Message}");
+        }
+        finally
+        {
+            CloudBusy = false;
+        }
+    }
+
+    /// <summary>登出：清 token、清持久化、清列表。</summary>
+    public void CloudLogout()
+    {
+        _cloud.Token = null;
+        CloudSettings.Clear();
+        CloudLoggedIn = false;
+        CloudAccountText = "";
+        CloudUsageText = "";
+        CloudProgressText = "";
+        CloudProgress = null;
+        BackupItems.Clear();
+        AppendLog("云备份：已登出。");
+    }
+
+    /// <summary>刷新云端备份列表（manifest）。</summary>
+    public async Task RefreshCloudBackupAsync()
+    {
+        if (!CloudLoggedIn) { ShowError("请先登录云端。"); return; }
+        if (CloudBusy) return;
+        CloudBusy = true;
+        try
+        {
+            await RefreshCloudStateAsync();
+        }
+        catch (CloudApiException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            ShowError($"刷新云端备份失败：{ex.Message}");
+        }
+        finally
+        {
+            CloudBusy = false;
+        }
+    }
+
+    /// <summary>备份到云端：加密导出目录 → 上传（同名覆盖）。password 只存内存。</summary>
+    public async Task BackupToCloudAsync(string password)
+    {
+        if (!CloudLoggedIn) { ShowError("请先登录云端。"); return; }
+        if (string.IsNullOrEmpty(password)) { ShowError("请先输入备份密码（用于端到端加密，密码不会上传）。"); return; }
+        var dir = string.IsNullOrWhiteSpace(AppSettings.LastExportDir) ? ExportPath : AppSettings.LastExportDir;
+        if (!Directory.Exists(dir)) { ShowError($"导出目录不存在：{dir}\n请先导出一次聊天记录再备份。"); return; }
+        if (CloudBusy) return;
+
+        CloudBusy = true;
+        CloudProgress = 0;
+        CloudProgressText = "加密中…";
+        try
+        {
+            var (used, quota) = await CloudBackupService.UploadDirectoryAsync(_cloud, dir, password, AppendLog, ReportCloudProgress);
+            CloudProgress = 1;
+            CloudProgressText = "上传完成";
+            CloudUsageText = $"已用 {EncryptedExport.FormatSize(used)} / {EncryptedExport.FormatSize(quota)}";
+            await RefreshManifestAsync();
+            ShowAlert($"云端备份完成：\n{CloudBackupService.BackupFileName}\n已用 {EncryptedExport.FormatSize(used)} / {EncryptedExport.FormatSize(quota)}");
+        }
+        catch (CloudApiException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (EncryptedExport.EncryptedExportException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            ShowError($"云端备份失败：{ex.Message}");
+        }
+        finally
+        {
+            CloudBusy = false;
+        }
+    }
+
+    /// <summary>删除云端备份（确认框）。</summary>
+    public async Task DeleteBackupAsync(CloudBackupItem item)
+    {
+        if (!CloudLoggedIn) { ShowError("请先登录云端。"); return; }
+        if (CloudBusy) return;
+        var choice = MessageBox.Show(
+            $"确定删除云端备份「{item.Name}」吗？\n此操作不可恢复。",
+            "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (choice != MessageBoxResult.Yes) return;
+
+        CloudBusy = true;
+        try
+        {
+            await _cloud.DeleteFileAsync(item.Name);
+            AppendLog($"云备份：已删除 {item.Name}");
+            await RefreshCloudStateAsync();
+        }
+        catch (CloudApiException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            ShowError($"删除失败：{ex.Message}");
+        }
+        finally
+        {
+            CloudBusy = false;
+        }
+    }
+
+    /// <summary>下载云端备份：分块拉回组装 .wxenc → 解密到所选目录。</summary>
+    public async Task DownloadBackupAsync(CloudBackupItem item, string password)
+    {
+        if (!CloudLoggedIn) { ShowError("请先登录云端。"); return; }
+        if (!item.IsComplete) { ShowError("该备份尚未上传完成（状态：上传中），暂无法下载。"); return; }
+        if (string.IsNullOrEmpty(password)) { ShowError("请先输入备份密码以解密。"); return; }
+        if (CloudBusy) return;
+
+        var save = new SaveFileDialog
+        {
+            Title = "保存下载的加密备份 (.wxenc)",
+            Filter = "加密备份文件 (*.wxenc)|*.wxenc",
+            FileName = item.Name,
+            InitialDirectory = Directory.Exists(ExportPath) ? ExportPath : null,
+        };
+        if (save.ShowDialog() != true) return;
+
+        var folder = new OpenFolderDialog
+        {
+            Title = "选择解密后的导出目录",
+            InitialDirectory = Directory.Exists(ExportPath) ? ExportPath : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        };
+        if (folder.ShowDialog() != true) return;
+
+        CloudBusy = true;
+        CloudProgress = 0;
+        CloudProgressText = "下载中…";
+        try
+        {
+            await CloudBackupService.DownloadAndDecryptAsync(_cloud, item, save.FileName, folder.FolderName, password, AppendLog, ReportCloudProgress);
+            CloudProgress = 1;
+            CloudProgressText = "完成";
+            ShowAlert($"下载并解密完成：\n{folder.FolderName}");
+        }
+        catch (EncryptedExport.EncryptedExportException ex)
+        {
+            ShowError($"{ex.Message}\n（.wxenc 已保留在 {save.FileName}，可用正确密码重试解密）");
+        }
+        catch (CloudApiException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            ShowError($"下载失败：{ex.Message}");
+        }
+        finally
+        {
+            CloudBusy = false;
+        }
+    }
+
+    /// <summary>刷新用量 + 清单（内部，供登录后/刷新/备份/删除调用）。</summary>
+    private async Task RefreshCloudStateAsync()
+    {
+        try
+        {
+            var (used, quota, fileCount) = await _cloud.GetUsageAsync();
+            CloudUsageText = $"已用 {EncryptedExport.FormatSize(used)} / {EncryptedExport.FormatSize(quota)} · {fileCount} 个备份";
+            await RefreshManifestAsync();
+        }
+        catch (CloudApiException ex) when ((int)ex.StatusCode == 401)
+        {
+            AppendLog("云备份：登录已过期，请重新登录。");
+            CloudLogout();
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"云备份：刷新用量失败：{ex.Message}");
+        }
+    }
+
+    private async Task RefreshManifestAsync()
+    {
+        var files = await _cloud.GetManifestAsync();
+        BackupItems.Clear();
+        foreach (var f in files) BackupItems.Add(f);
+        AppendLog($"云备份：清单已刷新（{BackupItems.Count} 个文件）");
+    }
+
+    /// <summary>云备份进度（后台线程回调 → BeginInvoke 派发到 UI 线程）。</summary>
+    private void ReportCloudProgress(double fraction)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.HasShutdownStarted) return;
+        dispatcher.BeginInvoke(new Action(() =>
+        {
+            CloudProgress = fraction;
+            CloudProgressText = $"{Math.Clamp((int)Math.Round(fraction * 100), 0, 100)}%";
+        }));
+    }
+
+    /// <summary>发送验证码按钮倒计时（60s 内禁用，UI 线程 async void）。</summary>
+    private async void StartSendCodeCountdown()
+    {
+        const int total = 60;
+        CloudSendCodeEnabled = false;
+        for (int i = total; i > 0; i--)
+        {
+            CloudSendCodeText = $"{i}s 后重发";
+            await Task.Delay(1000);
+        }
+        CloudSendCodeText = "发送验证码";
+        CloudSendCodeEnabled = true;
+    }
+
+    /// <summary>邮箱 → email；11 位纯数字 → sms；否则 null。</summary>
+    private static string? DetermineTargetType(string target)
+    {
+        if (target.Contains('@')) return "email";
+        if (target.Length == 11 && target.All(char.IsDigit)) return "sms";
+        return null;
     }
 
     public string StatusText
