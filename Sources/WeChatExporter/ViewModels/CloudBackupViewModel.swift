@@ -302,25 +302,25 @@ final class CloudBackupViewModel: ObservableObject {
 
     /// 后台 → 主线程状态日志
     private func statusLog() -> @Sendable (String) -> Void {
-        { [weak self] message in
-            Task { @MainActor in self?.statusMessage = message }
+        { [self] message in
+            Task { @MainActor [self] in self.statusMessage = message }
         }
     }
 
     private func uploadProgressHandler() -> @Sendable (Double, String) -> Void {
-        { [weak self] fraction, label in
-            Task { @MainActor in
-                self?.uploadProgress = fraction
-                self?.uploadLabel = label
+        { [self] fraction, label in
+            Task { @MainActor [self] in
+                self.uploadProgress = fraction
+                self.uploadLabel = label
             }
         }
     }
 
     private func downloadProgressHandler() -> @Sendable (Double, String) -> Void {
-        { [weak self] fraction, label in
-            Task { @MainActor in
-                self?.downloadProgress = fraction
-                self?.downloadLabel = label
+        { [self] fraction, label in
+            Task { @MainActor [self] in
+                self.downloadProgress = fraction
+                self.downloadLabel = label
             }
         }
     }
