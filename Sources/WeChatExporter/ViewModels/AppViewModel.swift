@@ -159,11 +159,15 @@ final class AppViewModel: ObservableObject {
             } else if paths.isDecrypted {
                 appendLog("检测到解密数据已损坏，正在尝试修复…")
                 await repairNativeData(paths: paths)
-            } else if paths.syncFromWxCliCache() {
-                appendLog("已从 wx-cli 缓存同步解密数据")
-                await refreshContactsNative(paths: paths)
             } else {
-                appendLog("首次使用请点击「准备数据」。")
+                // #39：缓存同步（关键库 quick_check + 文件拷贝）下沉后台
+                let synced = await Task.detached { paths.syncFromWxCliCache() }.value
+                if synced {
+                    appendLog("已从 wx-cli 缓存同步解密数据")
+                    await refreshContactsNative(paths: paths)
+                } else {
+                    appendLog("首次使用请点击「准备数据」。")
+                }
             }
         }
     }
@@ -252,7 +256,11 @@ final class AppViewModel: ObservableObject {
             return
         }
         do {
-            contacts = try ContactStore.loadContacts(from: paths.decryptedDir)
+            // #39：会话加载（SQLite 全量查询 + Name2Id 解析）下沉后台线程，大数据量不冻主线程
+            let items = try await Task.detached {
+                try ContactStore.loadContacts(from: paths.decryptedDir)
+            }.value
+            contacts = items
             appendLog("已加载 \(contacts.count) 个会话")
             isDataReady = !contacts.isEmpty
             statusText = "显示 \(filteredContacts.count) / \(contacts.count) 个会话"
@@ -262,7 +270,9 @@ final class AppViewModel: ObservableObject {
     }
 
     private func repairNativeData(paths: AppPaths) async {
-        if paths.syncFromWxCliCache() {
+        // #39：缓存同步（关键库 quick_check + 文件拷贝）下沉后台
+        let synced = await Task.detached { paths.syncFromWxCliCache() }.value
+        if synced {
             appendLog("已从 wx-cli 缓存修复解密数据")
             await refreshContactsNative(paths: paths)
             return
@@ -276,7 +286,10 @@ final class AppViewModel: ObservableObject {
     }
 
     private func prepareNativeData(paths: AppPaths) async throws {
-        var rawKey = DatabaseService.loadSavedRawKey(from: paths.rawKeyFile, dbRoot: paths.dbRoot)
+        // #39：saved rawKey 的 PBKDF2-SHA512 校验（25.6 万轮）下沉后台
+        var rawKey = await Task.detached {
+            DatabaseService.loadSavedRawKey(from: paths.rawKeyFile, dbRoot: paths.dbRoot)
+        }.value
         if rawKey == nil {
             rawKey = try await KeyCaptureService.capture(dbRoot: paths.dbRoot, log: logHandler())
             if let rawKey { try DatabaseService.saveRawKey(rawKey, to: paths.rawKeyFile) }
@@ -284,12 +297,17 @@ final class AppViewModel: ObservableObject {
             appendLog("使用已保存的密钥")
         }
         guard let rawKey else { throw AppError.keyCaptureFailed }
-        try DatabaseService.decryptAll(
-            dbRoot: paths.dbRoot,
-            decryptedDir: paths.decryptedDir,
-            rawKey: rawKey,
-            log: logHandler()
-        )
+        // #39：逐库 PBKDF2-SHA512（25.6 万轮）+ 全量解密是同步重活，
+        // 跑在 @MainActor 会冻住 UI（大数据量时表现为窗口未响应/进度停滞）。下沉后台线程。
+        let log = logHandler()
+        try await Task.detached {
+            try DatabaseService.decryptAll(
+                dbRoot: paths.dbRoot,
+                decryptedDir: paths.decryptedDir,
+                rawKey: rawKey,
+                log: log
+            )
+        }.value
     }
 
     func exportSelected() async {

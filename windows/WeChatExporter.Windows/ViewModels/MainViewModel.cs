@@ -28,6 +28,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string? _alertMessage;
     private double? _operationProgress;
     private string _operationProgressLabel = "";
+    // #39：长任务（准备数据/刷新/导出）支持取消，避免窗口「未响应」时用户只能杀进程
+    private CancellationTokenSource? _cts;
 
     public MainViewModel(WxCliService wxCli)
     {
@@ -573,7 +575,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>解密 .wxenc 加密导出包到导出目录</summary>
-    public void DecryptEncryptedExport()
+    public async Task DecryptEncryptedExport()
     {
         if (string.IsNullOrEmpty(_exportPassword))
         {
@@ -589,7 +591,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (dialog.ShowDialog() != true) return;
         try
         {
-            var n = EncryptedExport.DecryptFile(dialog.FileName, _exportPassword, _exportPath, AppendLog);
+            // #39：整包解密是同步重活（AES-GCM 全程内存 + 逐文件落盘），UI 线程跑会冻结窗口
+            var n = await Task.Run(
+                () => EncryptedExport.DecryptFile(dialog.FileName, _exportPassword, _exportPath, AppendLog));
             ShowAlert($"解密完成：{n} 个文件 → {_exportPath}");
         }
         catch (Exception ex)
@@ -692,6 +696,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanExport));
             OnPropertyChanged(nameof(ReadinessHint));
             OnPropertyChanged(nameof(ShowIndeterminateBusy));
+            OnPropertyChanged(nameof(ShowCancel));
         }
     }
 
@@ -708,6 +713,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     public bool CanExport => !IsBusy && SelectedContacts.Count > 0;
+
+    /// <summary>#39：长任务（准备数据/刷新/导出）进行中显示「取消」按钮。</summary>
+    public bool ShowCancel => IsBusy && _cts is not null;
+
+    /// <summary>#39：用户点「取消」：取消当前长任务（后台线程收到取消后快速返回）。</summary>
+    public void CancelOperation()
+    {
+        if (_cts is null) return;
+        _cts.Cancel();
+        AppendLog("正在取消当前操作…");
+        StatusText = "正在取消…";
+    }
 
     public string? AlertMessage
     {
@@ -750,12 +767,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (IsBusy) return;
         IsBusy = true;
         StatusText = "准备数据中…";
+        _cts = new CancellationTokenSource();
         try
         {
             AppendLog("开始准备数据…");
-            await _wxCli.PrepareDataAsync(AppendLog, ReportProgress);
+            await _wxCli.PrepareDataAsync(AppendLog, ReportProgress, _cts.Token);
             await LoadContactsInternalAsync(showErrorDialog: true);
             ShowAlert("数据准备完成，现在可以导出聊天记录了。");
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
+            // #39：用户点了「取消」——不是错误，不弹错误框
+            AppendLog("已取消准备数据。");
         }
         catch (Exception ex)
         {
@@ -817,9 +840,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (IsBusy) return;
         IsBusy = true;
         StatusText = "加载会话…";
+        _cts = new CancellationTokenSource();
         try
         {
             await LoadContactsInternalAsync(showErrorDialog: true);
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
+            AppendLog("已取消加载会话。");
         }
         finally
         {
@@ -840,6 +868,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsBusy = true;
         StatusText = "导出中…";
         var summary = new List<string>();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
         try
         {
             Directory.CreateDirectory(ExportPath);
@@ -848,10 +878,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 var stickerTemp = Path.Combine(Path.GetTempPath(), $"WeChatExporter-stickers-{Guid.NewGuid():N}");
                 try
                 {
-                    var stickerCount = await StickerPackExporter.ExportAllPacksAsync(stickerTemp, AppendLog);
+                    var stickerCount = await StickerPackExporter.ExportAllPacksAsync(stickerTemp, AppendLog, ct);
                     if (stickerCount > 0)
                     {
-                        var galleryPath = SingleFileExporter.WriteStickerGallery(stickerTemp, ExportPath);
+                        var galleryPath = await Task.Run(
+                            () => SingleFileExporter.WriteStickerGallery(stickerTemp, ExportPath), ct);
                         if (galleryPath is not null)
                             summary.Add($"• 全部表情包：{stickerCount} 张 → {Path.GetFileName(galleryPath)}");
                     }
@@ -867,16 +898,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 var tempDir = Path.Combine(Path.GetTempPath(), $"WeChatExporter-{Guid.NewGuid():N}");
                 try
                 {
-                    var count = await _wxCli.ExportAsync(contact, tempDir, IncludeMedia, AppendLog);
+                    var count = await _wxCli.ExportAsync(contact, tempDir, IncludeMedia, AppendLog, ct);
                     // 语音转文字（本地离线 whisper.cpp，缺工具自动跳过）
                     if (IncludeMedia && VoiceTranscriber.IsAvailable())
                     {
-                        VoiceTranscriber.TranscribeAll(tempDir, AppendLog);
+                        // #39：批量 whisper 转写是同步重活，UI 线程跑会冻结窗口
+                        await Task.Run(() => VoiceTranscriber.TranscribeAll(tempDir, AppendLog), ct);
                     }
                     // 图片 OCR（本地离线 Windows.Media.Ocr）
                     if (IncludeMedia && OcrEnabled)
                     {
-                        ImageOcrService.OcrAll(tempDir, AppendLog);
+                        await Task.Run(() => ImageOcrService.OcrAll(tempDir, AppendLog), ct);
                     }
                     // 增量导出：过滤为只保留上次游标之后的新增消息
                     if (IncrementalExportEnabled)
@@ -884,7 +916,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         var lastTs = IncrementalExport.LoadCursor(contact.Id, ExportPath);
                         if (lastTs is { } after)
                         {
-                            count = IncrementalExport.FilterArtifacts(tempDir, contact.Id, after, AppendLog);
+                            count = await Task.Run(
+                                () => IncrementalExport.FilterArtifacts(tempDir, contact.Id, after, AppendLog), ct);
                             if (count == 0)
                             {
                                 summary.Add($"• {contact.DisplayName}：无新增消息，已跳过");
@@ -902,27 +935,31 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     // v2.19：把文字产物（chat.json/txt/csv）复制到导出根目录/<会话名>/，
                     // 供全文搜索索引 / 脱敏 / 过滤 / 年度报告 / 日历提取使用（与 macOS textOnly 布局同口径）
                     var sessionDir = Path.Combine(ExportPath, ExportArtifacts.SanitizeDirName(contact.DisplayName));
-                    ExportArtifacts.CopyTextArtifacts(tempDir, sessionDir);
+                    await Task.Run(() => ExportArtifacts.CopyTextArtifacts(tempDir, sessionDir), ct);
 
-                    var htmlPath = SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath);
+                    var htmlPath = await Task.Run(
+                        () => SingleFileExporter.WriteHtml(tempDir, contact.DisplayName, ExportPath), ct);
                     summary.Add($"• {contact.DisplayName}：{count} 条 → {Path.GetFileName(htmlPath)}");
                     // 统计报告（本地聚合 chat.json，生成单文件 HTML）
                     if (StatsReportEnabled)
                     {
-                        var reportPath = ChatStatsReport.WriteReport(tempDir, contact.DisplayName, ExportPath, AppendLog);
+                        var reportPath = await Task.Run(
+                            () => ChatStatsReport.WriteReport(tempDir, contact.DisplayName, ExportPath, AppendLog), ct);
                         if (reportPath is not null)
                             summary.Add($"• {contact.DisplayName} 统计报告 → {Path.GetFileName(reportPath)}");
                     }
                     // 电子书 / 文档版（本地聚合 chat.json，生成 EPUB 与打印版文档）
                     if (EbookEpubEnabled)
                     {
-                        var epubPath = EBookExporter.WriteEpub(tempDir, contact.DisplayName, ExportPath, AppendLog);
+                        var epubPath = await Task.Run(
+                            () => EBookExporter.WriteEpub(tempDir, contact.DisplayName, ExportPath, AppendLog), ct);
                         if (epubPath is not null)
                             summary.Add($"• {contact.DisplayName} EPUB → {Path.GetFileName(epubPath)}");
                     }
                     if (EbookDocumentEnabled)
                     {
-                        var docPath = EBookExporter.WriteDocument(tempDir, contact.DisplayName, ExportPath, AppendLog);
+                        var docPath = await Task.Run(
+                            () => EBookExporter.WriteDocument(tempDir, contact.DisplayName, ExportPath, AppendLog), ct);
                         if (docPath is not null)
                             summary.Add($"• {contact.DisplayName} 文档版 → {Path.GetFileName(docPath)}");
                     }
@@ -936,40 +973,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
             // 目录导航页 + 全文检索（扫描导出目录，生成 index.html）
             if (IndexPageEnabled)
             {
-                ExportIndexBuilder.WriteIndex(ExportPath, AppendLog);
+                await Task.Run(() => ExportIndexBuilder.WriteIndex(ExportPath, AppendLog), ct);
             }
 
             // v2.19 全局后处理管线（SPEC §3 顺序：过滤 → 脱敏 → 搜索索引 → 年报/日历 → 水印）
             if (FilterEnabled)
             {
-                _ = ExportFilterService.Apply(ExportPath, FilterFromDate, FilterToDate, FilterKeywords, AppendLog);
+                _ = await Task.Run(
+                    () => ExportFilterService.Apply(ExportPath, FilterFromDate, FilterToDate, FilterKeywords, AppendLog), ct);
             }
             if (AnonEnabled)
             {
-                var names = AnonymizationService.CollectNames(ExportPath);
-                _ = AnonymizationService.Anonymize(ExportPath, names,
-                    new AnonymizationService.Settings(AnonMaskPii, AnonKeepMapping), AppendLog);
+                await Task.Run(() =>
+                {
+                    var names = AnonymizationService.CollectNames(ExportPath);
+                    _ = AnonymizationService.Anonymize(ExportPath, names,
+                        new AnonymizationService.Settings(AnonMaskPii, AnonKeepMapping), AppendLog);
+                }, ct);
                 summary.Add(AnonKeepMapping
                     ? "🕶 已脱敏（映射文件在导出根目录，可逆）"
                     : "🕶 已脱敏（不可逆，映射已销毁）");
             }
             if (SearchIndexEnabled)
             {
-                _ = SearchIndexService.Build(ExportPath, AppendLog);
+                _ = await Task.Run(() => SearchIndexService.Build(ExportPath, AppendLog), ct);
             }
             if (AnnualReportEnabled)
             {
-                _ = AnnualReportService.Write(ExportPath, AppendLog);
+                _ = await Task.Run(() => AnnualReportService.Write(ExportPath, AppendLog), ct);
             }
             if (CalendarExtractEnabled)
             {
-                _ = CalendarExtractService.Extract(ExportPath, AppendLog);
+                _ = await Task.Run(() => CalendarExtractService.Extract(ExportPath, AppendLog), ct);
             }
 
             // 导出水印：兜底扫描导出目录全部 HTML（幂等，已注入的跳过），缺水印层的补上
             if (WatermarkEnabled)
             {
-                Watermark.ApplyToDirectory(ExportPath, AppendLog);
+                await Task.Run(() => Watermark.ApplyToDirectory(ExportPath, AppendLog), ct);
             }
 
             // 记录最近导出目录（搜索面板 / wce CLI 用它定位索引）
@@ -998,10 +1039,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 archivePath = candidate;
 
                 var plainCount = Directory.EnumerateFiles(rootDir, "*", SearchOption.AllDirectories).Count();
-                EncryptedExport.EncryptDirectory(rootDir, ExportPassword, archivePath, AppendLog);
+                // #39：整体加密/校验是同步重活（大目录 AES-GCM 全程内存），UI 线程跑会冻结窗口
+                await Task.Run(() => EncryptedExport.EncryptDirectory(rootDir, ExportPassword, archivePath, AppendLog), ct);
 
                 // 删明文前先校验归档可解且条目数一致：校验不过就保留明文，绝不让用户两头空
-                var inspected = EncryptedExport.Inspect(archivePath, ExportPassword);
+                var inspected = await Task.Run(
+                    () => EncryptedExport.Inspect(archivePath, ExportPassword), ct);
                 if (inspected.Count != plainCount)
                 {
                     throw new InvalidOperationException(
@@ -1018,6 +1061,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? $"已导出 {SelectedContacts.Count} 个单文件到：\n{ExportPath}"
                 : $"已导出 {SelectedContacts.Count} 个单文件并加密为：\n{archivePath}";
             ShowAlert($"{targetLine}\n\n{string.Join('\n', summary)}\n\n用浏览器打开 .html 即可查看全部内容（媒体已内嵌）。");
+        }
+        catch (OperationCanceledException) when (_cts is not null && _cts.IsCancellationRequested)
+        {
+            // #39：用户点了「取消」——不弹错误框
+            AppendLog("已取消导出。");
         }
         catch (Exception ex)
         {
@@ -1071,9 +1119,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private async Task LoadContactsInternalAsync(bool showErrorDialog)
     {
+        var ct = _cts?.Token ?? CancellationToken.None;
         try
         {
-            var items = await _wxCli.LoadSessionsAsync(AppendLog, ReportProgress);
+            var items = await _wxCli.LoadSessionsAsync(AppendLog, ReportProgress, ct);
             Contacts.Clear();
             foreach (var item in items)
                 Contacts.Add(item);
@@ -1081,6 +1130,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(FilteredCountText));
             StatusText = FilteredCountText;
             IsDataReady = Contacts.Count > 0;
+        }
+        catch (OperationCanceledException) when (_cts is not null && _cts.IsCancellationRequested)
+        {
+            IsDataReady = false;
+            // 用户主动取消：不弹错误框（调用方在 PrepareData/Refresh 的 catch 里统一处理）
+            return;
         }
         catch (Exception ex)
         {

@@ -235,7 +235,8 @@ public sealed class WxCliService
             {
                 log("正在自动检测微信数据目录…");
                 progress?.Invoke(tracker.Warmup("正在自动检测微信数据目录…"));
-                dataDir = DetectWeChatDataDir(log);
+                // #39：全盘扫描（深度 ≤3）是同步重 IO，直接跑在 UI 线程会冻结窗口。下沉线程池。
+                dataDir = await Task.Run(() => DetectWeChatDataDir(log), cancellationToken);
             }
 
             if (!string.IsNullOrWhiteSpace(dataDir) && Directory.Exists(dataDir))
@@ -477,14 +478,20 @@ public sealed class WxCliService
 
         log("正在扫描微信进程内存提取密钥（兼容微信 4.1.12+）…");
         progress?.Invoke(tracker.Warmup("正在扫描内存提取密钥…"));
-        var rawKey = WeChatKeyExtractor.ExtractRawKey(verifyDb, log, cancellationToken);
+        // #39：内存模式扫描（Parallel.ForEach 全区域）+ 候选密钥 PBKDF2-SHA512 校验是同步重 CPU 活，
+        // 直接跑在 WPF UI 线程会把窗口冻结成「未响应」（进度冻在 8%）。下沉线程池。
+        var rawKey = await Task.Run(
+            () => WeChatKeyExtractor.ExtractRawKey(verifyDb, log, cancellationToken),
+            cancellationToken);
         if (rawKey is null)
         {
             log("未能从内存提取密钥。请确认：微信已登录并保持运行；已以管理员身份运行本程序；若仍失败，可能是微信版本过新（>4.1.11）。");
             return false;
         }
 
-        await WriteKeysAsync(configPath, dbStorage!, rawKey, log);
+        progress?.Invoke(tracker.Warmup("正在派生各库密钥…"));
+        log("正在派生各库密钥（每库 PBKDF2，数据库多时较慢）…");
+        await WriteKeysAsync(configPath, dbStorage!, rawKey, log, cancellationToken);
 
         // 重新初始化（不带 --force，期望 wx-cli 读取已写入的密钥）
         log("密钥已写入，重新初始化…");
@@ -506,7 +513,9 @@ public sealed class WxCliService
             "cache", AccountNameFromDir(dbStorage!), "db_storage");
         try
         {
-            var count = DecryptAllTo(rawKey, dbStorage!, cacheDir, log, cancellationToken);
+            var count = await Task.Run(
+                () => DecryptAllTo(rawKey, dbStorage!, cacheDir, log, cancellationToken),
+                cancellationToken);
             log($"已解密 {count} 个数据库到 {cacheDir}");
         }
         catch (Exception ex)
@@ -528,21 +537,30 @@ public sealed class WxCliService
     }
 
     /// <summary>将 rawKey 派生的各库加密密钥写入 all_keys.json，并更新 config.json 的 keys_file/your_wxid。</summary>
-    private static async Task WriteKeysAsync(string configPath, string dbStorageDir, byte[] rawKey, Action<string> log)
+    /// #39：逐库 PBKDF2-SHA512（25.6 万轮）是同步重 CPU 活，调用方须包 Task.Run 下沉线程池。
+    private static async Task WriteKeysAsync(string configPath, string dbStorageDir, byte[] rawKey,
+        Action<string> log, CancellationToken cancellationToken)
     {
-        var keys = new Dictionary<string, object>();
-        foreach (var dbPath in Directory.EnumerateFiles(dbStorageDir, "*.db", SearchOption.AllDirectories))
+        var dbFiles = Directory.EnumerateFiles(dbStorageDir, "*.db", SearchOption.AllDirectories).ToList();
+        var keys = await Task.Run(() =>
         {
-            var salt = WeChatDbCrypto.ReadSalt(dbPath);
-            if (salt is null) continue;
-            var encKey = WeChatDbCrypto.DeriveEncKey(rawKey, salt);
-            var rel = Path.GetRelativePath(dbStorageDir, dbPath).Replace('\\', '/');
-            keys[rel] = new { enc_key = Convert.ToHexString(encKey).ToLowerInvariant() };
-        }
+            var map = new Dictionary<string, object>();
+            foreach (var dbPath in dbFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var salt = WeChatDbCrypto.ReadSalt(dbPath);
+                if (salt is null) continue;
+                var encKey = WeChatDbCrypto.DeriveEncKey(rawKey, salt);
+                var rel = Path.GetRelativePath(dbStorageDir, dbPath).Replace('\\', '/');
+                map[rel] = new { enc_key = Convert.ToHexString(encKey).ToLowerInvariant() };
+            }
+            return map;
+        }, cancellationToken);
 
         var keysFile = Path.Combine(Path.GetDirectoryName(configPath)!, "all_keys.json");
         await File.WriteAllTextAsync(keysFile,
-            JsonSerializer.Serialize(keys, new JsonSerializerOptions { WriteIndented = true }));
+            JsonSerializer.Serialize(keys, new JsonSerializerOptions { WriteIndented = true }),
+            cancellationToken);
         log($"应用层密钥已写入：{keysFile}（{keys.Count} 个库）");
 
         await UpdateConfigFieldsAsync(configPath, new Dictionary<string, string>
@@ -552,21 +570,23 @@ public sealed class WxCliService
         }, log);
     }
 
-    /// <summary>应用层解密 db_storage 下全部数据库到目标目录（保持相对结构）。</summary>
+    /// <summary>应用层解密 db_storage 下全部数据库到目标目录（保持相对结构）。#39：同步重活，调用方包 Task.Run。</summary>
     private static int DecryptAllTo(byte[] rawKey, string dbStorageDir, string destDir, Action<string> log, CancellationToken ct)
     {
         var count = 0;
-        foreach (var dbPath in Directory.EnumerateFiles(dbStorageDir, "*.db", SearchOption.AllDirectories))
+        var dbFiles = Directory.EnumerateFiles(dbStorageDir, "*.db", SearchOption.AllDirectories).ToList();
+        foreach (var dbPath in dbFiles)
         {
             ct.ThrowIfCancellationRequested();
+            count++;
             try
             {
                 var rel = Path.GetRelativePath(dbStorageDir, dbPath);
                 var dest = Path.Combine(destDir, rel);
                 Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                log($"解密数据库 {count}/{dbFiles.Count}：{rel}");
                 var plain = WeChatDbCrypto.DecryptDatabase(rawKey, dbPath);
                 File.WriteAllBytes(dest, plain);
-                count++;
             }
             catch (Exception ex)
             {
@@ -753,7 +773,8 @@ public sealed class WxCliService
             log,
             cancellationToken);
 
-        var items = ParseSessions(output);
+        // #39：超大 JSON 的解析放线程池，避免 UI 线程卡顿
+        var items = await Task.Run(() => ParseSessions(output), cancellationToken);
         var count = items.Count;
         progress?.Invoke(tracker.Actual(count, count, $"已加载 {count} 个会话"));
         progress?.Invoke(tracker.Complete($"已加载 {count} 个会话"));

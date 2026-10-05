@@ -50,17 +50,21 @@ public partial class MainWindow : Window
         await _viewModel.ExportSelectedAsync();
     }
 
+    // #39：取消当前长任务（后台线程收到取消后快速返回，UI 恢复可交互）
+    private void Cancel_Click(object sender, RoutedEventArgs e)
+        => _viewModel.CancelOperation();
+
     private void SetPassword_Click(object sender, RoutedEventArgs e)
     {
         // 同步到 ViewModel：下次「导出选中」时生效（非空加密，空 = 明文）
         _viewModel.ExportPassword = PwdBox.Password;
     }
 
-    private void DecryptExport_Click(object sender, RoutedEventArgs e)
+    private async void DecryptExport_Click(object sender, RoutedEventArgs e)
     {
         if (!string.IsNullOrEmpty(PwdBox.Password))
             _viewModel.ExportPassword = PwdBox.Password;
-        _viewModel.DecryptEncryptedExport();
+        await _viewModel.DecryptEncryptedExport();
     }
 
     private void ChooseFolder_Click(object sender, RoutedEventArgs e)

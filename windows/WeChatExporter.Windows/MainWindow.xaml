@@ -44,6 +44,10 @@
                 <Button Content="导出选中" Padding="10,6"
                         Background="{StaticResource AccentBrush}" Foreground="White"
                         Click="Export_Click" IsEnabled="{Binding CanExport}"/>
+                <!-- #39：长任务进行中显示「取消」按钮（窗口不再冻结成未响应，用户可随时中止） -->
+                <Button Content="取消" Padding="10,6" Margin="6,0,0,0" Foreground="Gray"
+                        Click="Cancel_Click"
+                        Visibility="{Binding ShowCancel, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
 
             <TextBox DockPanel.Dock="Top" Margin="0,0,0,8"
