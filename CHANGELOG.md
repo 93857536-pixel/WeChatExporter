@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.20.0] - 2026-10-05
+
+### Added
+- **云端 E2EE 备份（双端，Windows WPF + macOS SwiftUI）**：App 设置页新增「云备份」卡——登录后自动上传/管理/下载加密备份（密码由用户本地输入，服务器永不接触明文），支持分块大文件传输、配额管理（单用户默认 1GB）、同名覆盖与 skip 去重；后端服务 `wce.linminhao.top/api/backup` 已部署上线
+
 ## [2.19.3] - 2026-10-05
 
 ### Fixed
