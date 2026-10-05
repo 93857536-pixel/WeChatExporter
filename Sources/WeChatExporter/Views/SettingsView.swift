@@ -5,7 +5,7 @@ struct SettingsView: View {
     @ObservedObject var model: AppViewModel
 
     enum SettingsTab: Int, CaseIterable, Identifiable {
-        case export = 0, update = 1, about = 2
+        case export = 0, update = 1, about = 2, backup = 3
 
         var id: Int { rawValue }
 
@@ -14,6 +14,7 @@ struct SettingsView: View {
             case .export: return "导出"
             case .update: return "更新"
             case .about: return "关于"
+            case .backup: return "云备份"
             }
         }
 
@@ -22,6 +23,7 @@ struct SettingsView: View {
             case .export: return "square.and.arrow.down.fill"
             case .update: return "arrow.triangle.2.circlepath"
             case .about: return "info.circle.fill"
+            case .backup: return "icloud.and.arrow.up.fill"
             }
         }
     }
@@ -122,6 +124,8 @@ struct SettingsView: View {
                     UpdateSettingsTab(model: model)
                 case .about:
                     AboutTab(model: model)
+                case .backup:
+                    CloudBackupSettingsTab()
                 }
             }
             .padding(20)
