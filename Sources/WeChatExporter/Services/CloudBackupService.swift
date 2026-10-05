@@ -4,7 +4,7 @@ import os.log
 
 // MARK: - 云备份
 //
-// 与 Windows 端对齐的「云备份」后端对接层。Base: https://wce.liminhao.top/api
+// 与 Windows 端对齐的「云备份」后端对接层。Base: https://wce.linminhao.top/api
 //   - 认证: OTP 登录/注册（邮箱或手机 + 6 位验证码），JWT 存 UserDefaults
 //   - 备份: 明文导出目录 → 复用 EncryptedExport 加密为单个 .wxenc → 分块上传 → commit
 //   - 管理: manifest 列表 / 删除 / 用量
@@ -139,7 +139,7 @@ enum CloudBackupStore {
 // MARK: - 后端 API 客户端
 
 enum CloudBackupAPI {
-    static let baseURL = URL(string: "https://wce.liminhao.top/api")!
+    static let baseURL = URL(string: "https://wce.linminhao.top/api")!
     static let deviceId = "mac-wce"
 
     private static let logger = Logger(

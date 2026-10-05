@@ -9,7 +9,7 @@ using WeChatExporter.Models;
 namespace WeChatExporter.Services;
 
 /// <summary>
-/// 云备份后端 HTTP 客户端（https://wce.liminhao.top/api）。
+/// 云备份后端 HTTP 客户端（https://wce.linminhao.top/api）。
 /// 契约：登录/注册(OTP) + manifest / chunk / commit / download / delete / usage。
 /// 本类只做网络层与响应解析；备份密码与加解密在上层（CloudBackupService），绝不经过本类。
 /// </summary>
@@ -51,7 +51,7 @@ public sealed class ManifestSubmitResult
 
 public sealed class CloudBackupClient
 {
-    public const string BaseUrl = "https://wce.liminhao.top/api";
+    public const string BaseUrl = "https://wce.linminhao.top/api";
 
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
