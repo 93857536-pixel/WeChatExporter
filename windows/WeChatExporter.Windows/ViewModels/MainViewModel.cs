@@ -1134,8 +1134,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         catch (OperationCanceledException) when (_cts is not null && _cts.IsCancellationRequested)
         {
             IsDataReady = false;
-            // 用户主动取消：不弹错误框（调用方在 PrepareData/Refresh 的 catch 里统一处理）
-            return;
+            // #39：用户主动取消——重新上抛，由 PrepareData/Refresh 的 catch 统一处理
+            // （避免调用方误以为成功而弹「数据准备完成」）
+            throw;
         }
         catch (Exception ex)
         {
