@@ -891,7 +891,7 @@ private struct AboutTab: View {
                             .font(.caption)
                         Label("需启用 DevToolsSecurity（软件可自动检测并启用）", systemImage: "checkmark.circle")
                             .font(.caption)
-                        Label("支持微信 4.1.7 – 4.1.11", systemImage: "checkmark.circle")
+                        Label("支持微信 4.1.7 及以上（Intel / Apple Silicon 双芯片）", systemImage: "checkmark.circle")
                             .font(.caption)
                         Label("Windows 需安装 .NET 8 运行时", systemImage: "checkmark.circle")
                             .font(.caption)

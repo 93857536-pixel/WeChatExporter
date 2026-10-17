@@ -20,14 +20,18 @@ jobs:
           bash scripts/prepare_icon.sh
           ./build_app.sh
 
-      - name: Verify bundled wx-cli accepts WeChat 4.1.11 allowlist
+      - name: Verify bundled wx-cli (universal, WeChat 4.1.7+)
         run: |
           test -x WeChatExporter.app/Contents/Resources/wx-cli
+          # #41：内置 wx-cli 必须是 universal（Intel + Apple Silicon 双切片）
+          lipo -archs WeChatExporter.app/Contents/Resources/wx-cli | grep -q x86_64
+          lipo -archs WeChatExporter.app/Contents/Resources/wx-cli | grep -q arm64
           WeChatExporter.app/Contents/Resources/wx-cli --version
           WeChatExporter.app/Contents/Resources/wx-cli doctor | tee /tmp/doctor.txt
           grep -q "All checks passed" /tmp/doctor.txt
-          # Allowlist embeds as concatenated literals: ...4.1.104.1.11...
-          strings WeChatExporter.app/Contents/Resources/wx-cli | grep -F '4.1.11' >/dev/null
+          # 上游已移除固定版本 allowlist，改为「4.1.7 及以上均可提取密钥」：
+          # 关键版本号字面量仍应出现在二进制中（4.1.7 最低门槛）
+          strings WeChatExporter.app/Contents/Resources/wx-cli | grep -F '4.1.7' >/dev/null
 
   build-windows:
     name: Build Windows

@@ -6,13 +6,26 @@ final class WxCliService {
     let executable: URL
     let isBundled: Bool
 
+    /// 最近一次定位 wx-cli 时产生的架构兼容提示（#41：Intel Mac 上内置 wx-cli 为
+    /// 单架构时无法执行，App 回退到原生后端；此处保留人话提示供 UI 日志展示）。
+    static var locateHint: String?
+
     init?(executable: URL? = nil) {
+        Self.locateHint = nil
         if let executable, FileManager.default.isExecutableFile(atPath: executable.path) {
+            guard Self.executableMatchesCurrentArchitecture(executable) else {
+                Self.locateHint = "所选 wx-cli（\(executable.lastPathComponent)）的 CPU 架构与当前系统不匹配（\(Self.currentArchitectureLabel()) 无法执行 \(Self.binaryArchitectureLabel(executable)) 二进制）。"
+                return nil
+            }
             self.executable = executable
             self.isBundled = Self.isBundledExecutable(executable)
             return
         }
         guard let found = Self.locateExecutable() else { return nil }
+        guard Self.executableMatchesCurrentArchitecture(found) else {
+            Self.locateHint = "内置 wx-cli 仅为 \(Self.binaryArchitectureLabel(found)) 架构，当前 \(Self.currentArchitectureLabel()) 系统无法执行（#41）。已自动回退到内置原生解密后端（LLDB 密钥捕获），功能不受影响。"
+            return nil
+        }
         self.executable = found
         self.isBundled = Self.isBundledExecutable(found)
     }
@@ -56,6 +69,70 @@ final class WxCliService {
     private static func isBundledExecutable(_ url: URL) -> Bool {
         let bundleRoot = Bundle.main.bundleURL.path
         return url.path.hasPrefix(bundleRoot + "/")
+    }
+
+    // MARK: - 架构兼容检测（#41：单架构 wx-cli 在错误芯片的 Mac 上无法执行）
+
+    private static let cpuTypeX86_64: UInt32 = 0x01000007
+    private static let cpuTypeARM64: UInt32 = 0x0100000C
+
+    /// 当前进程（即本 App）运行的 CPU 架构标签。
+    static func currentArchitectureLabel() -> String {
+        #if arch(arm64)
+        return "arm64 (Apple Silicon)"
+        #elseif arch(x86_64)
+        return "x86_64 (Intel)"
+        #else
+        return "未知架构"
+        #endif
+    }
+
+    /// 读可执行文件的 Mach-O 头，返回其 CPU 架构标签（fat 文件返回全部切片）。
+    static func binaryArchitectureLabel(_ url: URL) -> String {
+        guard let data = try? Data(contentsOf: url), data.count >= 8 else { return "未知" }
+        // 本机为小端（arm64/x86_64）：磁盘字节 CF FA ED FE 读作 0xFEEDFACF（64 位单架构），
+        // CA FE BA BE 读作 0xBEBAFECA（fat）。
+        let magic = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        if magic == 0xBEBAFECA || magic == 0xCAFEBABE {
+            // fat 头各字段按大端存储：先小端 load，再 .bigEndian 还原
+            let count = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self).bigEndian }
+            var arches: [String] = []
+            for i in 0..<Int(count) {
+                let off = 8 + i * 32
+                guard off + 4 <= data.count else { break }
+                let cputype = data.withUnsafeBytes { $0.load(fromByteOffset: off, as: UInt32.self).bigEndian }
+                arches.append(Self.archName(cputype))
+            }
+            return arches.isEmpty ? "未知" : arches.joined(separator: " + ")
+        }
+        // 单架构 64 位：魔数与小端 cputype 均按小端存储
+        guard magic == 0xFEEDFACF else { return "未知" }
+        let cputype = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self) }
+        return Self.archName(cputype)
+    }
+
+    private static func archName(_ cputype: UInt32) -> String {
+        switch cputype {
+        case cpuTypeX86_64: return "x86_64"
+        case cpuTypeARM64: return "arm64"
+        default: return "未知(0x\(String(cputype, radix: 16)))"
+        }
+    }
+
+    /// 判断可执行文件是否可在当前架构上运行（fat 文件恒为 true，单架构需匹配）。
+    static func executableMatchesCurrentArchitecture(_ url: URL) -> Bool {
+        #if arch(arm64)
+        let native = cpuTypeARM64
+        #elseif arch(x86_64)
+        let native = cpuTypeX86_64
+        #else
+        return true
+        #endif
+        guard let data = try? Data(contentsOf: url), data.count >= 8 else { return true }
+        let magic = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        if magic == 0xCAFEBABE || magic == 0xBEBAFEED { return true } // fat 双架构，任何芯片都能跑
+        guard magic == 0xFEEDFACF else { return true }
+        return data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self) } == native
     }
 
     func statusText() async throws -> String {
@@ -137,7 +214,7 @@ final class WxCliService {
                     if message.localizedCaseInsensitiveContains("not supported for key extraction")
                         || message.localizedCaseInsensitiveContains("UnsupportedVersion") {
                         throw AppError.decryptFailed(
-                            "当前微信版本不受内置 wx-cli 支持（需 4.1.7–4.1.11）。请升级 WeChatExporter 到最新版，或等待适配更新。原始错误：\(message)"
+                            "当前微信版本不受内置 wx-cli 支持（需 4.1.7 及以上）。请确认微信为较新版本，或升级 WeChatExporter 到最新版后重试。原始错误：\(message)"
                         )
                     }
                     throw error

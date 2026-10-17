@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.21.0] - 2026-10-17
+
+### Fixed
+- **🔴 Intel Mac 上无法导出：内置 wx-cli 实为 arm64 单架构，报"CPU 类型不正确"（#41）**：
+  仓库 `vendor/macos/wx-cli` 在 v2.20.0 里实际是 **arm64 单架构**（Mach-O cputype=0x0100000C），
+  Intel 芯片无法执行，点「准备数据」/导出时抛「无法启动 wx-cli：可执行文件中的CPU类型不正确」。
+  根因是当时内置的 wx-cli 只编译了 Apple Silicon 切片。现升级内置 wx-cli 为 **universal（x86_64 + arm64 双切片）**：
+  - 上游 `pandorafuture/wx-cli` 现为开源 Rust 项目，本机分别以 `--target x86_64-apple-darwin` 与 arm64 交叉编译后 `lipo` 合成双架构二进制替换 vendor 副本；
+  - `build_app.sh` 产物校验与 `ci.yml` / `release.yml` 均新增「内置 wx-cli 必须是 universal」的 `lipo -archs` 双重切片校验，杜绝单架构回归；
+  - App 启动时检测内置/自选 wx-cli 的 CPU 架构，与当前系统不匹配时不再静默，而是打印人话提示并自动回退到内置原生解密后端（LLDB 密钥捕获）。
+  - 同步修正 `vendor/README.md` 与 UI/文档中「仅 x86_64 / 支持 4.1.7–4.1.11」的过时描述。
+
+### Changed
+- 内置 wx-cli 升级到上游主线（`v0.7.4` 起，已移除固定版本 allowlist）：密钥提取现支持 **微信 4.1.7 及以上**（含 4.1.12/4.1.13 等新版），macOS 端不再受 4.1.11 上限约束。
+
 ## [2.20.0] - 2026-10-05
 
 ### Added

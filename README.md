@@ -68,8 +68,8 @@
 
 | 组件 | macOS | Windows |
 |------|-------|---------|
-| 内置 CLI | 仓库 `vendor/macos/wx-cli`（支持微信 4.1.7–4.1.11） | 仓库 `vendor/windows/wx.exe` |
-| 微信版本 | 4.x（已验证 4.1.7–4.1.11） | 4.x（4.1.7–4.1.11 直接支持；4.1.12+ 由应用层内存扫密钥兜底） |
+| 内置 CLI | 仓库 `vendor/macos/wx-cli`（universal 双芯片，支持微信 4.1.7 及以上） | 仓库 `vendor/windows/wx.exe` |
+| 微信版本 | 4.x（内置 wx-cli 支持 4.1.7 及以上，含 4.1.12+） | 4.x（4.1.7–4.1.11 直接支持；4.1.12+ 由应用层内存扫密钥兜底） |
 | 语音转文字 | 可选：需本机安装 [whisper.cpp](https://github.com/ggml-org/whisper.cpp)（`whisper-cli`）与模型；SILK 解码器已内置 | 可选：需 `whisper-cli.exe` + 模型（设置页可一键下载模型）；SILK 解码器已内置 |
 | 图片 OCR | 系统自带（macOS 13+ Vision 框架，离线） | 系统自带（Windows 10/11 Media OCR，离线） |
 | 统计报告 / 增量 / 检索 | 纯本地，无额外依赖 | 纯本地，无额外依赖 |

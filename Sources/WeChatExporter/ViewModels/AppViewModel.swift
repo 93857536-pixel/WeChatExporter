@@ -64,9 +64,18 @@ final class AppViewModel: ObservableObject {
             return
         }
 
+        // #41：wx-cli 不可用（含架构不匹配自动回退）时给人话提示，别静默。
+        // 注意：必须放在 backend（stored property）完成赋值之后再调用实例方法。
+        func logWxCliFallbackHintIfNeeded() {
+            if let hint = WxCliService.locateHint {
+                appendLog(hint)
+            }
+        }
+
         do {
             let paths = try AppPaths.detect()
             backend = .native(paths)
+            logWxCliFallbackHintIfNeeded()
             exportPath = paths.exportDir.path
             appendLog("账号：\(paths.accountID)")
         } catch {
@@ -81,6 +90,7 @@ final class AppViewModel: ObservableObject {
                     exportDir: URL(fileURLWithPath: defaultExport, isDirectory: true)
                 )
             )
+            logWxCliFallbackHintIfNeeded()
             presentError(error.localizedDescription)
         }
     }

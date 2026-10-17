@@ -25,6 +25,11 @@ jobs:
       - name: Verify universal binary
         run: lipo -archs WeChatExporter.app/Contents/MacOS/WeChatExporter | grep -q x86_64 && lipo -archs WeChatExporter.app/Contents/MacOS/WeChatExporter | grep -q arm64
 
+      - name: Verify bundled wx-cli is universal (#41)
+        run: |
+          lipo -archs WeChatExporter.app/Contents/Resources/wx-cli | grep -q x86_64
+          lipo -archs WeChatExporter.app/Contents/Resources/wx-cli | grep -q arm64
+
       - name: Create DMG installer
         run: |
           python3 -m pip install --quiet Pillow || true
