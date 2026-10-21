@@ -81,7 +81,13 @@ public static class WeChatKeyExtractor
                 log?.Invoke($"进程 {process.Id} 扫描失败：{ex.Message}");
             }
         }
-        log?.Invoke("内存中未匹配到有效密钥（微信可能未登录或版本过新）");
+        log?.Invoke("内存中未匹配到有效密钥。请逐项确认：");
+        log?.Invoke("  ① 微信 PC 版已登录并停留在主界面（后台最小化不算）；");
+        log?.Invoke("  ② 本程序已以管理员身份运行（普通权限读不到微信进程内存）；");
+        log?.Invoke("  ③ 若近期升级过微信，先彻底退出微信（任务管理器结束所有 Weixin/WeChatAppEx 进程）再重新登录，");
+        log?.Invoke("     让密钥在内存中重新派生后重试；");
+        log?.Invoke("  ④ 微信版本过新时内置扫描模式可能尚未覆盖，请更新 WeChatExporter 到最新版，");
+        log?.Invoke("     并把本段日志反馈到 GitHub Issues。");
         return null;
     }
 

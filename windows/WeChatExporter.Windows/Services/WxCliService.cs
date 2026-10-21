@@ -149,6 +149,21 @@ public sealed class WxCliService
             if (needsInit || !File.Exists(configPath))
             {
                 await InitFreshAsync(configPath, savedDbDir, log, progress, tracker, cancellationToken);
+                // #42: 新初始化路径也必须校验密钥真实可用，否则 wx-cli 的「已初始化」假成功
+                // 会让 PrepareDataAsync 直接跳到「数据准备完成」，随后 LoadSessionsAsync
+                // 在 sessions 命令上挂满 300 秒超时，UI 冻在 30%。
+                progress?.Invoke(tracker.Warmup("正在校验数据可用性…"));
+                if (!await VerifyCacheReadableAsync(log, cancellationToken))
+                {
+                    // #42: 消息里避免出现「数据目录」/「db_dir」字样，
+                    // MainViewModel 会据此误弹手动选择目录对话框（#38 经验）。
+                    throw new InvalidOperationException(
+                        "初始化完成但密钥校验失败（wx-cli 无法解密本地数据库）。\n"
+                        + "常见原因：1) 微信版本过新，内置 wx-cli 未能从内存提取到有效密钥；"
+                        + "2) 微信升级后密钥已轮换，已保存的密钥与数据库不匹配。\n"
+                        + "建议：彻底退出微信 → 以管理员身份重新打开本程序 → 重新登录微信并同步聊天记录 → 再点击「准备数据」。"
+                        + "若仍失败，请把上方完整日志反馈到 GitHub Issues。");
+                }
             }
             else
             {

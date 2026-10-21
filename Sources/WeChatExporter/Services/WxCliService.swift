@@ -211,6 +211,48 @@ final class WxCliService {
                     })
                 } catch {
                     let message = error.localizedDescription
+                    // #43: 针对「抓不到 PBKDF2」的几类具体失败给出可操作诊断，
+                    // 而不是笼统地把原始错误抛回（用户看到 task_for_pid / kern_return=5
+                    // 时根本不知道是该关 SIP 还是加 _developer 组）。
+                    if message.localizedCaseInsensitiveContains("task_for_pid")
+                        || message.localizedCaseInsensitiveContains("kern_return") {
+                        log("LLDB 无法附加到微信进程（task_for_pid 失败）。这通常由以下原因之一导致：")
+                        log("  ① SIP 未关闭（Recovery 模式 csrutil disable 后重启）；")
+                        log("  ② DevToolsSecurity 未启用（sudo DevToolsSecurity -enable）；")
+                        log("  ③ 当前用户未加入 _developer 组（dseditgroup -o edit -t user -a $USER _developer）；")
+                        log("  ④ 正在以普通权限运行本程序（请右键 → 以管理员身份运行，或 sudo 启动）。")
+                        throw AppError.decryptFailed(
+                            "LLDB 无法附加到微信进程（task_for_pid 失败）。请依次确认：\n"
+                            + "1) SIP 已关闭：恢复模式执行 `csrutil disable` 后重启；\n"
+                            + "2) 已执行 `sudo DevToolsSecurity -enable`；\n"
+                            + "3) 当前用户在 _developer 组：`sudo dseditgroup -o edit -t user -a $(whoami) _developer`；\n"
+                            + "4) 本程序以管理员权限运行。\n"
+                            + "完成 1-4 后重新点「准备数据」。原始错误：\(message)"
+                        )
+                    }
+                    if message.localizedCaseInsensitiveContains("LLDB capture timed out")
+                        || message.localizedCaseInsensitiveContains("did you log in") {
+                        log("LLDB 捕获超时：等待微信登录并触发 PBKDF2 调用超时。请确认：")
+                        log("  ① 微信在弹窗后确实完成了扫码/账号登录（登录成功后才会派生数据库密钥）；")
+                        log("  ② 登录动作要快，在微信弹出后 2 分钟内完成；")
+                        log("  ③ 微信版本过新（>4.1.15）时密钥派生流程可能已变化，LLDB 断点不再命中。")
+                        throw AppError.decryptFailed(
+                            "LLDB 捕获密钥超时（未能抓到 PBKDF2 调用）。请确认：\n"
+                            + "1) 微信弹出登录框后已实际完成登录（扫码或账号密码），登录后才会派生数据库密钥；\n"
+                            + "2) 微信保持前台且已同步到本地聊天记录；\n"
+                            + "3) 若微信版本较新（4.1.15+），密钥派生符号可能已变化导致断点不命中，"
+                            + "可尝试先彻底退出微信（含后台进程）再重试，或等 WeChatExporter 适配该版本。\n"
+                            + "原始错误：\(message)"
+                        )
+                    }
+                    if message.localizedCaseInsensitiveContains("no key for account")
+                        || message.localizedCaseInsensitiveContains("NoPbkdfCalls") {
+                        throw AppError.decryptFailed(
+                            "未能捕获到该账号的数据库密钥（no key for account）。请确认微信已登录并保持运行，"
+                            + "且该账号在 Mac 上有本地聊天记录（云端未同步到本地的账号无法提取本地密钥）。"
+                            + "可先彻底退出微信再重试。原始错误：\(message)"
+                        )
+                    }
                     if message.localizedCaseInsensitiveContains("not supported for key extraction")
                         || message.localizedCaseInsensitiveContains("UnsupportedVersion") {
                         throw AppError.decryptFailed(

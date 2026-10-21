@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.21.1] - 2026-10-20
+
+### Fixed
+- **🔴 Windows「准备数据」卡在 30% / 无法解密 session.db（#42，微信 4.1.11.55）**：
+  当内置 wx-cli 无法从微信进程内存提取到密钥时，`init` 会「假成功」（读到旧 config 就报已初始化），
+  随后 `PrepareDataAsync` 直接跳到「数据准备完成」，加载会话时 `sessions` 命令挂满 300 秒超时、
+  UI 冻在 30%。现在**新初始化路径末尾追加一次真实读取探测（`sessions -n 1`）**，
+  确认保存的密钥确实能解开数据库；校验失败时抛出带可操作指引的明确异常（彻底退出微信→管理员重开→重新登录→重试），
+  不再让流程"静默通过"。同时改进内存扫描 0 匹配时的日志，逐项列出排查步骤（登录态/管理员/升级微信后重登/更新版本）。
+- **🔴 macOS 微信 4.1.15 下 LLDB 捕获超时 / task_for_pid 失败，密钥提取无可用诊断（#43）**：
+  `key extract` 失败时此前只把原始错误抛回，用户看到 `task_for_pid failed (kern_return=5)` 或
+  `LLDB capture timed out` 不知道该查什么。现在针对三类失败分别给出可操作诊断：
+  - `task_for_pid` / `kern_return` → 依次核对 SIP / `DevToolsSecurity -enable` / `_developer` 组 / 管理员运行；
+  - `LLDB capture timed out` / `did you log in` → 确认已在弹出的登录框完成登录、微信保持前台、新版微信符号可能已变化；
+  - `no key for account` / `NoPbkdfCalls` → 确认该账号在 Mac 上有本地聊天记录（云端未同步的账号无法提本地密钥）。
+
 ## [2.21.0] - 2026-10-17
 
 ### Fixed
