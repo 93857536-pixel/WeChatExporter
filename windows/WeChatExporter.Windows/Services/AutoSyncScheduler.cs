@@ -55,8 +55,10 @@ public static class AutoSyncScheduler
         // 若已存在先删再建（/Create 直接建，同名会失败）
         try { Run("schtasks", $"/Delete /TN \"{TaskName}\" /F"); } catch { /* ignore */ }
 
-        // /TR 中参数需转义；用引号包 exe 路径，参数直接拼接
-        var taskRun = $"\"{exe}\" wce --auto-sync";
+        // /TR 转义规则：内层引号必须反斜杠转义，否则 schtasks 把 ""exe"" 解析成
+        // 转义引号并拆分命令行——路径含空格时任务创建失败或丢失 wce --auto-sync 参数。
+        // 形如 /TR "\"C:\x\wce.exe\" wce --auto-sync"，schtasks 解析后任务运行器 = "C:\x\wce.exe" wce --auto-sync
+        var taskRun = $"\\\"{exe}\\\" wce --auto-sync";
         var create = Run("schtasks",
             $"/Create /SC MINUTE /MO {minutes} /TN \"{TaskName}\" /TR \"{taskRun}\" /F");
         if (create.ExitCode != 0)
@@ -64,6 +66,16 @@ public static class AutoSyncScheduler
             log?.Invoke($"定时任务安装失败：schtasks 拒绝（exit {create.ExitCode}）：{create.Output.Trim()}");
             return false;
         }
+        // 回读校验：/Query /XML 能拿到任务且 CommandLine 含 wce --auto-sync，才认为转义正确
+        try
+        {
+            var q = Run("schtasks", $"/Query /XML /TN \"{TaskName}\"");
+            if (q.ExitCode != 0 || !q.Output.Contains("wce --auto-sync"))
+            {
+                log?.Invoke("定时任务回读校验异常（CommandLine 不含 wce --auto-sync），请手动检查计划任务");
+            }
+        }
+        catch { /* 回读失败不阻断 */ }
         log?.Invoke($"定时任务已安装：每 {minutes} 分钟增量导出 → {(string.IsNullOrWhiteSpace(dir) ? "(默认导出目录)" : dir)}");
         return true;
     }

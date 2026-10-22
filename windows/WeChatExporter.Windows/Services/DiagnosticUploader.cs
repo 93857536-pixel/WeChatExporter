@@ -21,9 +21,27 @@ public static class DiagnosticUploader
     private const string AppName = "WeChatExporter";
     private const string Platform = "windows";
 
-    // 与契约文档 v2.14.0 保持一致（独立于 csproj 的发布版本号，由主流程统一同步）。
-    private const string Version = "2.14.0";
-    private const string Build = "31";
+    // 版本号读程序集（随发布构建自动同步），避免硬编码后与实际版本脱节
+    private static readonly (string Version, string Build) AppVersion = ResolveAppVersion();
+
+    private static (string, string) ResolveAppVersion()
+    {
+        try
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            var v = asm.GetName().Version;
+            var version = $"{v!.Major}.{v.Minor}.{v.Build}";
+            var build = asm.GetCustomAttributes(false)
+                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                .Select(a => a.InformationalVersion.Split('+', 2).First().Trim())
+                .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)) ?? v.Revision.ToString();
+            return (version, build);
+        }
+        catch
+        {
+            return ("unknown", "0");
+        }
+    }
 
     private const int MaxErrorChars = 2000;
     private const int MaxLogChars = 8000;
@@ -129,8 +147,8 @@ public static class DiagnosticUploader
             {
                 app = AppName,
                 platform = Platform,
-                version = Version,
-                build = Build,
+                version = AppVersion.Version,
+                build = AppVersion.Build,
                 os = Environment.OSVersion.ToString(),
                 timestamp = DateTime.Now.ToString("o"),
                 stage,

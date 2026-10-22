@@ -35,7 +35,7 @@ enum SearchIndexService {
         }
         defer { sqlite3_close(db) }
 
-        let fts5OK = exec(db, "CREATE VIRTUAL TABLE wce_fts USING fts5(chat TEXT, ts UNINDEXED, sender TEXT, content TEXT)")
+        let fts5OK = exec(db, "CREATE VIRTUAL TABLE wce_fts USING fts5(chat TEXT, ts UNINDEXED, sender TEXT, content TEXT, tokenize = \"trigram\")")
         if fts5OK {
             _ = exec(db, "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)")
             _ = exec(db, "CREATE TABLE chat_sessions(chat TEXT PRIMARY KEY)")
@@ -118,14 +118,20 @@ enum SearchIndexService {
             phrase = "\"\(kw.replacingOccurrences(of: "\"", with: "\"\""))\""
             sql = "SELECT chat, ts, sender, content FROM wce_fts WHERE wce_fts MATCH ? ORDER BY ts DESC LIMIT ?"
         } else {
-            sql = "SELECT chat, ts, sender, content FROM wce_rows WHERE lower(content) LIKE lower(?) OR lower(sender) LIKE lower(?) ORDER BY ts DESC LIMIT ?"
+            // LIKE 降级：ESCAPE 子句 + 转义后的参数（见下方 bind 分支），
+            // 否则用户搜 "100%" / "a_b" 时 %/_ 被当通配符（匹配范围失控）
+            sql = "SELECT chat, ts, sender, content FROM wce_rows WHERE lower(content) LIKE lower(?) ESCAPE '\\' OR lower(sender) LIKE lower(?) ESCAPE '\\' ORDER BY ts DESC LIMIT ?"
         }
         var s: OpaquePointer?
         guard prepare(db, sql, out: &s), let s else { return [] }
         if useFTS {
             sqlite3_bind_text(s, 1, phrase, -1, destructor)
         } else {
-            let pattern = "%\(kw)%"
+            let esc = kw
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "%", with: "\\%")
+                .replacingOccurrences(of: "_", with: "\\_")
+            let pattern = "%" + esc + "%"
             sqlite3_bind_text(s, 1, pattern, -1, destructor)
             sqlite3_bind_text(s, 2, pattern, -1, destructor)
         }
@@ -172,7 +178,10 @@ enum SearchIndexService {
         for r in rows {
             let nested = r["message"] as? [String: Any]
             let src = nested ?? r
-            let ts = intField(src, ["create_time", "timestamp"]) ?? intField(r, ["create_time", "timestamp"]) ?? 0
+            var ts = intField(src, ["create_time", "timestamp"]) ?? intField(r, ["create_time", "timestamp"]) ?? 0
+            // 毫秒时间戳归一为秒（与 WxCliService.FormatTime / ChatStatsReport 同口径；
+            // 否则 Hit 显示会把 13 位毫秒当秒，约 5 万年后）
+            if ts > 100_000_000_000 { ts /= 1000 }
             let sender = stringField(r, ["sender_display_name", "sender", "from", "display_name"])
                 ?? stringField(src, ["sender_display_name", "sender"]) ?? "未知"
             let type = intField(src, ["local_type", "type"]) ?? 0

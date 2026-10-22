@@ -2,7 +2,73 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.21.2] - 2026-10-21
+
+### Fixed（三端全量审计修复，macOS/Windows/Linux）
+
+**数据丢失（high）**
+- 🔴 **增量导出覆盖历史会话**：`FilterArtifacts` 把临时 chat.json 重写为「仅增量」子集后，
+  `CopyTextArtifacts` 以 File.Delete+Copy 覆盖 base 会话目录 → 第二次 auto-sync 起该会话
+  只剩本轮增量、历史丢失（下游全文搜索/统计/年报/日历全基于残缺数据）。
+  修法：新增无副作用的 `HasIncremental` 评估（Win/mac），4 个调用点（Win GUI + Win auto-sync +
+  mac GUI×2 + mac auto-sync）改「先判后写」——无增量直接跳过，base 历史产物永不被覆盖。
+- 🔴 **Linux .wxenc 解密路径穿越（zip-slip，high）**：条目路径来自加密文件内容（不可信输入），
+  `../../x` 或绝对路径可越界写任意文件（潜在 RCE）。修法：拒绝 `..` 段/绝对路径 +
+  canonicalize 后校验仍在目标目录内 + 越界条目跳过并记日志；补 `path_traversal_rejected` 回归测试。
+
+**功能失效（med）**
+- **FTS5 中文搜索必空（Win/mac）**：建表无 `tokenize='trigram'`（Linux 已有，跨端分歧），
+  unicode61 默认分词把连续 CJK 当一个 token，短语 MATCH 不中。修法：Win/mac 建表对齐 trigram。
+- **毫秒时间戳丢失（Win ChatStatsReport / SearchIndex 入库）**：`GetInt` 用 `TryGetInt32`，
+  13 位毫秒全 null → 时间维度统计整列为空；入库未归一 → 搜索时间显示「约 5 万年后」。
+  修法：Int64 + `>100_000_000_000 → /1000` 毫秒归一（与 mac `dateFromTimestamp` 同口径）。
+- **schtasks /TR 双引号叠加（Win）**：`""exe" wce --auto-sync"` 嵌套后 CommandLineToArgvW
+  把 `""` 当转义引号，路径含空格必中（任务建失败或丢参数）。修法：内层引号反斜杠转义 +
+  安装后 `schtasks /Query /XML` 回读校验。
+- **encrypturl 被当明文 URL（Win/mac）**：候选链含 encrypturl 时主 fetch 拿到密文（非 null），
+  `data is null` 的 AES 解密兜底永不触发 → 加密图静默下载失败。修法：明文候选链移除 encrypturl，
+  只走加密通道。
+- **Linux auto-sync 数据源错键**：`run_auto_sync` 从不读 `settings.export.data_dir`，
+  回退到 `last_dir`（实为导出输出目录，无 session.db）→ 定时任务永远报「会话数据库不存在」。
+  修法：优先级 WCE_DATA_DIR 环境变量 → data_dir → last_dir。
+- **Linux 定时任务假成功**：`install_timer` 吞掉 systemctl 失败（非 systemd 发行版照样报「已安装」），
+  且 auto-sync.enabled 无入口置 true（enabled 永 false，定时器空转）。修法：校验 systemctl 返回码 +
+  安装时同步开 enabled / 卸载时关，失败如实报错。
+
+**正确性（low）**
+- **日历非法日期崩溃（Win）**：`ParseDay` 只校验 `dy<=31`，`new DateTime(4月,31日)` 抛异常且行循环无
+  try/catch → `wce report` / auto-sync 整条管线崩。修法：`ValidDay`（闰年感知，对齐 mac Foundation
+  Calendar）+ 行级 try/catch；mac/Linux 同步对齐口径（Linux 结束时间 23 点 +1h 不再产生 24:xx 非法 ICS）。
+- **ICS 属性未转义 + 无 75 字节行折叠（Win/mac）**：SUMMARY/DESCRIPTION 的 `; , \ 换行`未转义、
+  裸 LF、长行不折叠 → 不合规 ICS 多数客户端解析失败。修法：`IcsEscape` + `FoldIcsLine`（UTF-8 75 octet）。
+- **过滤 0 命中保留全量产物（Win/mac，隐私）**：无命中时 early-return 不写盘，用户期望过滤掉的
+  完整聊天记录原样留在导出目录。修法：0 命中写空产物。
+- **LIKE 降级 `%/_` 未转义（Win/mac）**：搜 `100%` / `a_b` 时通配符失控。修法：ESCAPE 子句 + 转义。
+- **`wce report` 空结果退 1（Win/mac）**：目录无数据 / 日历 0 事件（都属正常）被当失败。
+  修法：无数据=正常退 0，仅「有数据但年报写失败」退 1。
+- **游标写非原子（Win）**：auto-sync 与 GUI 并发时读-改-写互相覆盖。修法：进程锁 + tmp 原子重命名。
+- **DiagnosticUploader 版本硬编码 2.14.0（Win）**：改为读程序集版本（随构建自动同步）。
+- **VoiceTranscriber 管道死锁 + 模型半成品误判（Win）**：先读 stdout 再读 stderr（whisper-cli
+  stderr 填满 4KB 管道互卡）；模型下载中断残留的几 MB 残片下次被「已存在」误判。修法：双路并行
+  异步读 + `.part` 下载 + 50MB 下限校验后才落正式名。
+- **Linux 小项**：Name2Id `query` 路径 panic 改容错；FTS5 降级时 DELETE batch 半途失败导致
+  旧索引累积（两条 DELETE 独立执行）。
+
+### Version / Sync
+- 版本号：Win csproj + mac build_app.sh + CHANGELOG → 2.21.2（build 37）
+- Linux 三处（Cargo.toml / tauri.conf.json / package.json）从 2.19.2 对齐到 2.21.2
+  （v2.19.3–v2.21.1 发版时 Linux 端版本一直未随主版本同步，本次补上；
+  后续发版三处需与 AGENTS.md 版本同步清单一起改）
+
+### 验证
+- macOS `swift build -c release`：0 错
+- Windows `dotnet build -c Release`（EnableWindowsTargeting）：0 错
+- Linux `cargo test`：23 通过（含新 `path_traversal_rejected` zip-slip 回归测试）
+- 已知边界：macOS/Windows 侧修复经编译 + 行为断言覆盖；真实微信端到端（密钥提取→解密→导出）
+  仍依赖真实用户实测反馈（#42/#43 同类，无法在无微信环境复现）
+
 ## [2.21.1] - 2026-10-20
+
 
 ### Fixed
 - **🔴 Windows「准备数据」卡在 30% / 无法解密 session.db（#42，微信 4.1.11.55）**：

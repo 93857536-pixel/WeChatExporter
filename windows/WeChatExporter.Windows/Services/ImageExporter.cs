@@ -145,7 +145,10 @@ internal static class ImageExporter
 
     private static bool TryPickUrl(Dictionary<string, string> attrs, out string url)
     {
-        foreach (var key in new[] { "cdnbigimgurl", "cdnmidimgurl", "cdnthumburl", "cdnurl", "tpurl", "encrypturl", "attachurl" })
+        // 只选「明文」CDN url；encrypturl 是密文,主 fetch 拿到后无法直接归一化,
+        // 若放进候选链,FetchUrlAsync 会返回非 null 的密文,导致下方 AES 解密兜底永不触发。
+        // 加密通道走 DownloadImageAsync 里的 encrypturl + aeskey 兜底。
+        foreach (var key in new[] { "cdnbigimgurl", "cdnmidimgurl", "cdnthumburl", "cdnurl", "tpurl", "attachurl" })
         {
             if (attrs.TryGetValue(key, out url!) && !string.IsNullOrWhiteSpace(url) && url != "null")
             {

@@ -32,7 +32,10 @@ enum ExportFilterService {
         let total = rows.count
         let keptRows = filterRows(rows, fromTs: fromTs, toTs: toTs, kw: kw)
         guard !keptRows.isEmpty else {
-            log("过滤：\(contactName) 0 / \(total) 条保留（无命中）")
+            // 隐私：0 命中必须把产物清空，否则「保留全量产物」= 用户期望过滤掉的
+            // 完整聊天记录原样留在导出目录里
+            log("过滤：\(contactName) 0 / \(total) 条保留（无命中，已清空产物）")
+            writeArtifacts([], sessionName: contactName, in: dir, jsonURL: jsonURL)
             return Result(kept: 0, total: total)
         }
         writeArtifacts(keptRows, sessionName: contactName, in: dir, jsonURL: jsonURL)

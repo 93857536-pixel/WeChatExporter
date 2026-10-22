@@ -87,7 +87,17 @@ fn extract_event(session: &str, msg: &Message) -> Option<CalendarEvent> {
 
     let (hour, minute) = find_time(text);
     let start = format!("{date_str} {:02}:{:02}", hour, minute);
-    let end = format!("{date_str} {:02}:{:02}", hour + 1, minute);
+    // 结束时间 = 开始 +1 小时，自然进位跨日（23:00 → 次日 00:00），
+    // 避免旧写法 hour+1 产生 24:xx 的非法 ICS 时间
+    let end = if hour >= 23 {
+        let d = chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+            .ok()
+            .and_then(|base| base.checked_add_days(chrono::Days::new(1)))
+            .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
+        format!("{} {:02}:{:02}", d.format("%Y-%m-%d"), 0, minute)
+    } else {
+        format!("{date_str} {:02}:{:02}", hour + 1, minute)
+    };
 
     let summary: String = text.chars().take(60).collect();
     Some(CalendarEvent {

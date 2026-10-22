@@ -232,14 +232,14 @@ public static class ChatStatsReport
 
     // MARK: - 工具函数（与 SingleFileExporter 保持一致的解析口径）
 
-    private static int? GetInt(JsonElement el, params string[] keys)
+    private static long? GetInt(JsonElement el, params string[] keys)
     {
         if (el.ValueKind != JsonValueKind.Object) return null;
         foreach (var key in keys)
         {
             if (!el.TryGetProperty(key, out var v)) continue;
-            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)) return n;
-            if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out var s)) return s;
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var n)) return n;
+            if (v.ValueKind == JsonValueKind.String && long.TryParse(v.GetString(), out var s)) return s;
         }
         return null;
     }

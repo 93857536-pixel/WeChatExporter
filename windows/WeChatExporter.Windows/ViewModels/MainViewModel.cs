@@ -1312,6 +1312,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                         var lastTs = IncrementalExport.LoadCursor(contact.Id, ExportPath);
                         if (lastTs is { } after)
                         {
+                            // 先评估是否有增量，有才过滤；无增量时跳过（保护 base 目录历史）
+                            if (!IncrementalExport.HasIncremental(tempDir, after))
+                            {
+                                summary.Add($"• {contact.DisplayName}：无新增消息，已跳过");
+                                continue;
+                            }
                             count = await Task.Run(
                                 () => IncrementalExport.FilterArtifacts(tempDir, contact.Id, after, AppendLog), ct);
                             if (count == 0)

@@ -33,25 +33,68 @@ public static class IncrementalExport
         return all.FirstOrDefault(c => c.ContactID == contactID && c.ExportDir == exportDir)?.LastTimestamp;
     }
 
-    /// <summary>回写游标（只保留同一键的最新记录）。</summary>
+    /// 写游标文件串行锁：定时 auto-sync（计划任务）与 GUI 并发跑时，
+    /// 读-改-写非原子会互相覆盖（后写的丢先写的游标）。
+    private static readonly object CursorLock = new();
+
+    /// <summary>回写游标（只保留同一键的最新记录；原子写 + 进程内串行）。</summary>
     public static void SaveCursor(string contactID, string exportDir, long lastTimestamp)
     {
         var file = CursorFile();
-        Cursor[] all = [];
-        if (File.Exists(file))
+        lock (CursorLock)
         {
-            try { all = JsonSerializer.Deserialize<Cursor[]>(File.ReadAllText(file)) ?? []; }
-            catch { all = []; }
+            Cursor[] all = [];
+            if (File.Exists(file))
+            {
+                try { all = JsonSerializer.Deserialize<Cursor[]>(File.ReadAllText(file)) ?? []; }
+                catch { all = []; }
+            }
+            all = all.Where(c => !(c.ContactID == contactID && c.ExportDir == exportDir)).ToArray();
+            var cursor = new Cursor(contactID, exportDir, lastTimestamp, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            all = all.Append(cursor).ToArray();
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            try
+            {
+                // 临时文件 + 原子重命名，避免中途崩溃留下半截 JSON
+                var tmp = file + ".tmp-" + Environment.ProcessId;
+                File.WriteAllText(tmp, JsonSerializer.Serialize(all, new JsonSerializerOptions { WriteIndented = true }));
+                if (File.Exists(file)) File.Replace(tmp, file, null);
+                else File.Move(tmp, file);
+            }
+            catch { /* 游标写入失败不影响导出本身 */ }
         }
-        all = all.Where(c => !(c.ContactID == contactID && c.ExportDir == exportDir)).ToArray();
-        var cursor = new Cursor(contactID, exportDir, lastTimestamp, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-        all = all.Append(cursor).ToArray();
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+    }
+
+    /// <summary>
+    /// 评估「是否有增量」：返回 true 当且仅当 tempDir 的 chat.json 存在且存在 timestamp &gt; after 的行。
+    /// 不修改任何文件，仅做判断——用于「先判后写」场景，防止 FilterArtifacts 把增量只留下之后，
+    /// CopyTextArtifacts 再把「只剩增量」的 chat.json 以 File.Delete+Copy 的方式覆盖 base 目录的历史。
+    /// </summary>
+    public static bool HasIncremental(string tempDir, long after)
+    {
+        var jsonPath = Path.Combine(tempDir, "chat.json");
+        if (!File.Exists(jsonPath)) return false;
         try
         {
-            File.WriteAllText(file, JsonSerializer.Serialize(all, new JsonSerializerOptions { WriteIndented = true }));
+            using var doc = JsonDocument.Parse(File.ReadAllText(jsonPath));
+            foreach (var r in FlatRows(doc))
+            {
+                if (TimestampOf(r) > after) return true;
+            }
         }
-        catch { /* 游标写入失败不影响导出本身 */ }
+        catch { /* parse fail = 无法判定，保守视为无增量 */ }
+        return false;
+    }
+
+    private static IEnumerable<JsonElement> FlatRows(JsonDocument doc)
+    {
+        if (doc.RootElement.ValueKind == JsonValueKind.Array) return doc.RootElement.EnumerateArray();
+        foreach (var key in new[] { "items", "messages", "results" })
+        {
+            if (doc.RootElement.TryGetProperty(key, out var a) && a.ValueKind == JsonValueKind.Array)
+                return a.EnumerateArray();
+        }
+        return Enumerable.Empty<JsonElement>();
     }
 
     /// <summary>过滤导出产物：chat.json / chat.txt / chat.csv 只保留 timestamp > after 的消息。</summary>

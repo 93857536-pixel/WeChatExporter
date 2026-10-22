@@ -54,33 +54,45 @@ public static class CalendarExtractService
 
             foreach (var row in rows)
             {
-                var source = row is JsonObject o && o["message"] is JsonObject msg ? msg : row;
-                var ts = GetInt(source, "create_time", "timestamp") ?? GetInt(row, "create_time", "timestamp");
-                if (ts is not { } rawTs || rawTs <= 0) continue;
-                var msgTs = NormalizeTs(rawTs);
-                var text = GetString(row, "snippet", "content", "text")
-                    ?? GetString(source, "content", "text") ?? "";
-                if (ParseDay(text, msgTs) is not { } day) continue;
-
-                var msgDate = ShanghaiLocal(msgTs);
-                DateTime date;
-                if (day.IsRelative)
+                try
                 {
-                    var baseDate = msgDate.AddDays(day.OffsetDay);
-                    date = new DateTime(baseDate.Year, baseDate.Month, baseDate.Day, day.Hour, day.Minute, 0);
-                }
-                else
-                {
-                    var candidate = new DateTime(day.Year, day.Month, day.Day, day.Hour, day.Minute, 0);
-                    if (candidate < msgDate)
-                        candidate = new DateTime(day.Year + 1, day.Month, day.Day, day.Hour, day.Minute, 0);
-                    date = candidate;
-                }
+                    var source = row is JsonObject o && o["message"] is JsonObject msg ? msg : row;
+                    var ts = GetInt(source, "create_time", "timestamp") ?? GetInt(row, "create_time", "timestamp");
+                    if (ts is not { } rawTs || rawTs <= 0) continue;
+                    var msgTs = NormalizeTs(rawTs);
+                    var text = GetString(row, "snippet", "content", "text")
+                        ?? GetString(source, "content", "text") ?? "";
+                    if (ParseDay(text, msgTs) is not { } day) continue;
 
-                var start = date.ToString("yyyy-MM-dd HH:mm");
-                var end = date.AddMinutes(60).ToString("yyyy-MM-dd HH:mm");
-                var summary = Substring(text, 60).Replace("\n", " ");
-                events.Add(new Event(sessionName, msgTs, summary, start, end, Substring(text, 120)));
+                    var msgDate = ShanghaiLocal(msgTs);
+                    DateTime? date;
+                    if (day.IsRelative)
+                    {
+                        var baseDate = msgDate.AddDays(day.OffsetDay);
+                        date = ValidDay(baseDate.Year, baseDate.Month, baseDate.Day)
+                            ? new DateTime(baseDate.Year, baseDate.Month, baseDate.Day, day.Hour, day.Minute, 0)
+                            : (DateTime?)null;
+                    }
+                    else
+                    {
+                        // 2026-02-30 这类非法日：ValidDay 拦截，不再 new DateTime 抛异常
+                        if (!ValidDay(day.Year, day.Month, day.Day)) continue;
+                        date = new DateTime(day.Year, day.Month, day.Day, day.Hour, day.Minute, 0);
+                        if (date < msgDate)
+                        {
+                            // 次年同位置仍须为合法日（如 2023-02-29 的次年 2024 合法、2025 不合法）
+                            if (!ValidDay(day.Year + 1, day.Month, day.Day)) continue;
+                            date = new DateTime(day.Year + 1, day.Month, day.Day, day.Hour, day.Minute, 0);
+                        }
+                    }
+                    if (date is not { } d) continue;
+
+                    var start = d.ToString("yyyy-MM-dd HH:mm");
+                    var end = d.AddMinutes(60).ToString("yyyy-MM-dd HH:mm");
+                    var summary = Substring(text, 60).Replace("\n", " ");
+                    events.Add(new Event(sessionName, msgTs, summary, start, end, Substring(text, 120)));
+                }
+                catch { /* 单行解析失败不影响其余行 */ }
             }
         }
 
@@ -146,7 +158,9 @@ public static class CalendarExtractService
         {
             var mo = int.Parse(reMd.Groups[1].Value);
             var dy = int.Parse(reMd.Groups[2].Value);
-            if (mo is >= 1 and <= 12 && dy is >= 1 and <= 31) { absM = mo; absD = dy; }
+            // 与 macOS Foundation Calendar 同口径：构造 DateTime 前先校验该月实际天数，
+            // 非法日（如 4 月 31 / 2 月 30）直接丢弃，避免 new DateTime 抛异常拖垮整条管线
+            if (mo is >= 1 and <= 12 && dy is >= 1 and <= 31 && ValidDay(msgYear, mo, dy)) { absM = mo; absD = dy; }
         }
 
         // 4) 绝对日期 YYYY-MM-DD / YYYY/MM/DD
@@ -158,7 +172,7 @@ public static class CalendarExtractService
                 var y = int.Parse(reFull.Groups[1].Value);
                 var mo = int.Parse(reFull.Groups[2].Value);
                 var dy = int.Parse(reFull.Groups[3].Value);
-                if (y > 2000 && mo is >= 1 and <= 12 && dy is >= 1 and <= 31) { absY = y; absM = mo; absD = dy; }
+                if (y > 2000 && mo is >= 1 and <= 12 && dy is >= 1 and <= 31 && ValidDay(y, mo, dy)) { absY = y; absM = mo; absD = dy; }
             }
         }
 
@@ -238,12 +252,65 @@ public static class CalendarExtractService
             sb.Append($"DTSTAMP:{stamp}\r\n");
             sb.Append($"DTSTART;TZID=Asia/Shanghai:{s:yyyyMMdd'T'HHmmss}\r\n");
             sb.Append($"DTEND;TZID=Asia/Shanghai:{en:yyyyMMdd'T'HHmmss}\r\n");
-            sb.Append($"SUMMARY:{e.Session}｜{e.Summary}\r\n");
-            sb.Append($"DESCRIPTION:原文：{e.Raw}\r\n");
+            sb.Append(FoldIcsLine($"SUMMARY:{IcsEscape(e.Session)}｜{IcsEscape(e.Summary)}") + "\r\n");
+            sb.Append(FoldIcsLine($"DESCRIPTION:原文：{IcsEscape(e.Raw)}") + "\r\n");
             sb.Append("END:VEVENT\r\n");
         }
         sb.Append("END:VCALENDAR\r\n");
         File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
+    }
+
+    /// <summary>ICS 值转义（RFC 5545 §3.3.11）：反斜杠 / 分号 / 逗号 / 换行。</summary>
+    private static string IcsEscape(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s ?? "";
+        var sb = new StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            switch (c)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case ';': sb.Append("\\;"); break;
+                case ',': sb.Append("\\,"); break;
+                case '\r': break; // 去掉 CR，统一用 \n
+                case '\n': sb.Append("\\n"); break;
+                default: sb.Append(c); break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>ICS 行折叠（RFC 5545 §3.1）：行内插 CRLF + 空格续行，UTF-8 计 75 octet。</summary>
+    private static string FoldIcsLine(string line)
+    {
+        if (string.IsNullOrEmpty(line)) return line ?? "";
+        var bytes = Encoding.UTF8.GetBytes(line);
+        if (bytes.Length <= 75) return line;
+        // 每行最多 75 octet，续行行首一个空格（占 1 octet）
+        var sb = new StringBuilder();
+        var first = true;
+        var offset = 0;
+        while (offset < bytes.Length)
+        {
+            var budget = first ? 75 : 74; // 续行含 1 个前导空格
+            int end = offset + budget;
+            // 不切在 UTF-8 多字节字符中间（回退到续行字节边界 0x80-0xBF 之前）
+            while (end < bytes.Length && end > offset && (bytes[end] & 0xC0) == 0x80) end--;
+            var chunk = Encoding.UTF8.GetString(bytes, offset, end - offset);
+            if (first)
+            {
+                sb.Append(chunk);
+                first = false;
+            }
+            else
+            {
+                sb.Append(" ");
+                sb.Append(chunk);
+            }
+            if (end < bytes.Length) sb.Append("\r\n");
+            offset = end;
+        }
+        return sb.ToString();
     }
 
     private static bool TryParseShanghai(string s, out DateTime dt)
@@ -273,6 +340,10 @@ public static class CalendarExtractService
         => TimeZoneInfo.ConvertTimeFromUtc(DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime, Shanghai);
 
     private static long NormalizeTs(long ts) => ts > 100_000_000_000L ? ts / 1000 : ts;
+
+    /// <summary>指定年某月是否含 D 号（闰年感知；与 macOS Foundation Calendar 的 date(from:) 合法口径对齐）。</summary>
+    private static bool ValidDay(int year, int month, int day)
+        => year is > 0 && month is >= 1 and <= 12 && day is >= 1 and <= 31 && DateTime.DaysInMonth(year, month) >= day;
 
     private static string Substring(string s, int max)
         => s.Length <= max ? s : s[..max];

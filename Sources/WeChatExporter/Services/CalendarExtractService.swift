@@ -72,9 +72,11 @@ enum CalendarExtractService {
                     c.day = day.day
                     c.hour = day.hour
                     c.minute = day.minute
-                    var candidate = cal.date(from: c) ?? msgDate
+                    guard let candidate0 = cal.date(from: c) else { continue }
+                    var candidate = candidate0
                     // 绝对日期早于消息时刻 → 次年（SPEC：M月D日默认当年，早了 +1）
                     if candidate < msgDate {
+                        if !isValidDay(year: day.year + 1, month: day.month, day: day.day) { continue }
                         c.year = day.year + 1
                         candidate = cal.date(from: c) ?? candidate
                     }
@@ -155,7 +157,7 @@ enum CalendarExtractService {
             for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) where m.numberOfRanges == 3 {
                 let mo = Int(ns.substring(with: m.range(at: 1))) ?? 0
                 let dy = Int(ns.substring(with: m.range(at: 2))) ?? 0
-                if (1...12).contains(mo), (1...31).contains(dy) {
+                if (1...12).contains(mo), (1...31).contains(dy), isValidDay(year: msgYear, month: mo, day: dy) {
                     absM = mo
                     absD = dy
                 }
@@ -168,7 +170,7 @@ enum CalendarExtractService {
                 let y = Int(ns.substring(with: m.range(at: 1))) ?? 0
                 let mo = Int(ns.substring(with: m.range(at: 2))) ?? 0
                 let dy = Int(ns.substring(with: m.range(at: 3))) ?? 0
-                if y > 2000, (1...12).contains(mo), (1...31).contains(dy) {
+                if y > 2000, (1...12).contains(mo), (1...31).contains(dy), isValidDay(year: y, month: mo, day: dy) {
                     absY = y
                     absM = mo
                     absD = dy
@@ -270,8 +272,8 @@ enum CalendarExtractService {
             out += "DTSTAMP:\(stampF.string(from: Date()))\r\n"
             out += "DTSTART;TZID=Asia/Shanghai:\(conv(s))\r\n"
             out += "DTEND;TZID=Asia/Shanghai:\(conv(en))\r\n"
-            out += "SUMMARY:\(e.session)｜\(e.summary)\r\n"
-            out += "DESCRIPTION:原文：\(e.raw)\r\n"
+            out += foldIcsLine("SUMMARY:\(icsEscape(e.session))｜\(icsEscape(e.summary))") + "\r\n"
+            out += foldIcsLine("DESCRIPTION:原文：\(icsEscape(e.raw))") + "\r\n"
             out += "END:VEVENT\r\n"
         }
         out += "END:VCALENDAR\r\n"
@@ -290,7 +292,60 @@ enum CalendarExtractService {
         return String(hash, radix: 16)
     }
 
+    /// ICS 值转义（RFC 5545 §3.3.11）：反斜杠 / 分号 / 逗号 / 换行
+    private static func icsEscape(_ s: String) -> String {
+        var out = ""
+        out.reserveCapacity(s.count)
+        for c in s {
+            switch c {
+            case "\\": out += "\\\\"
+            case ";": out += "\\;"
+            case ",": out += "\\,"
+            case "\r": break
+            case "\n": out += "\\n"
+            default: out.append(c)
+            }
+        }
+        return out
+    }
+
+    /// ICS 行折叠（RFC 5545 §3.1）：UTF-8 计 75 octet，续行行首一个空格
+    private static func foldIcsLine(_ line: String) -> String {
+        let bytes = Array(line.utf8)
+        if bytes.count <= 75 { return line }
+        var out = ""
+        var first = true
+        var offset = 0
+        while offset < bytes.count {
+            let budget = first ? 75 : 74 // 续行含 1 个前导空格
+            var end = offset + budget
+            // 不切在 UTF-8 多字节字符中间（回退到续行字节边界 0x80-0xBF 之前）
+            while end < bytes.count, end > offset, (bytes[end] & 0xC0) == 0x80 { end -= 1 }
+            let chunk = String(decoding: bytes[offset..<end], as: UTF8.self)
+            if first {
+                out += chunk
+                first = false
+            } else {
+                out += " " + chunk
+            }
+            if end < bytes.count { out += "\r\n" }
+            offset = end
+        }
+        return out
+    }
+
     // MARK: - 小工具（与 ChatStatsReport 解析口径一致）
+
+    /// 指定年某月是否含 D 号（闰年感知；与 Windows DateTime.DaysInMonth 同口径）
+    private static func isValidDay(year: Int, month: Int, day: Int) -> Bool {
+        guard year > 0, (1...12).contains(month), (1...31).contains(day) else { return false }
+        let cal = Calendar(identifier: .gregorian)
+        var c = DateComponents()
+        c.year = year; c.month = month; c.day = day
+        guard let d = cal.date(from: c) else { return false }
+        let comps = cal.dateComponents([.day], from: d)
+        return comps.day == day
+    }
 
     private static func intField(_ row: [String: Any], _ keys: [String]) -> Int? {
         for k in keys {

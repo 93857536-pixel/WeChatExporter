@@ -45,22 +45,45 @@ fn write_unit_files(interval_minutes: i64) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// 安装 systemd user timer（返回状态信息）
+/// 安装 systemd user timer（返回状态信息）。
+/// 同时把 settings.export.auto_sync.enabled 置 true——否则 run_auto_sync 第一行
+/// 就因「未启用」直接退出 0，定时器空转（前端没有 enabled 开关入口）。
 pub fn install_timer(interval_minutes: i64) -> Result<String> {
     write_unit_files(interval_minutes)?;
-    let _ = run_cmd("systemctl", &["--user", "daemon-reload"]);
-    let _ = run_cmd("systemctl", &["--user", "enable", "--now", TIMER_NAME]);
-    Ok(format!("已安装定时任务（每 {interval_minutes} 分钟）"))
+    let reload = run_cmd("systemctl", &["--user", "daemon-reload"]);
+    let enable = run_cmd("systemctl", &["--user", "enable", "--now", TIMER_NAME]);
+    if !reload.status.success() || !enable.status.success() {
+        // 非 systemd 发行版 / 未启用 user bus：systemctl 全部失败但 unit 文件已写入，
+        // 必须如实报错，别给用户「已安装」的假象
+        let detail = String::from_utf8_lossy(&enable.stderr);
+        return Err(crate::core::err(format!(
+            "systemctl 安装失败（可能需要启用 systemd user 会话，或当前发行版无 systemd）：{detail}"
+        )));
+    }
+    // 开启自动同步开关并保存（与 interval 一并进行）
+    let mut settings = crate::core::settings::Settings::load();
+    settings.export.auto_sync.enabled = true;
+    settings.export.auto_sync.interval_minutes = interval_minutes.max(5);
+    crate::core::settings::save(&settings)?;
+    Ok(format!("已安装定时任务（每 {interval_minutes} 分钟）并开启自动同步"))
 }
 
 /// 卸载 systemd user timer
 pub fn uninstall_timer() -> Result<String> {
-    let _ = run_cmd("systemctl", &["--user", "disable", "--now", TIMER_NAME]);
+    let disable = run_cmd("systemctl", &["--user", "disable", "--now", TIMER_NAME]);
     let dir = systemd_user_dir();
     let _ = std::fs::remove_file(dir.join(SERVICE_NAME));
     let _ = std::fs::remove_file(dir.join(TIMER_NAME));
     let _ = run_cmd("systemctl", &["--user", "daemon-reload"]);
-    Ok("已卸载定时任务".to_string())
+    // 同步关闭自动同步开关（与 install 对称）
+    let mut settings = crate::core::settings::Settings::load();
+    settings.export.auto_sync.enabled = false;
+    let _ = crate::core::settings::save(&settings);
+    if !disable.status.success() {
+        let detail = String::from_utf8_lossy(&disable.stderr);
+        return Err(crate::core::err(format!("systemctl 卸载失败：{detail}")));
+    }
+    Ok("已卸载定时任务并关闭自动同步".to_string())
 }
 
 /// 查询定时任务状态（已安装/未安装 + 上次运行时间）
@@ -98,9 +121,20 @@ pub fn run_auto_sync(settings: &Settings, log: &mut dyn FnMut(String)) -> i32 {
         log("auto-sync 未启用，退出".to_string());
         return 0;
     }
+    // 数据源优先级：WCE_DATA_DIR 环境变量 → settings.export.data_dir（GUI 保存的已解密目录）
+    // → 回退 last_dir。修复前 last_dir 被 pipeline 写成了「导出输出目录」（含 chat.json/html，
+    // 不含 session.db），导致 systemd 触发 auto-sync 永远报「会话数据库不存在」。
     let data_dir = std::env::var("WCE_DATA_DIR")
         .map(PathBuf::from)
         .ok()
+        .or_else(|| {
+            let s = settings.export.data_dir.clone();
+            if s.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(s))
+            }
+        })
         .or_else(|| {
             let s = settings.export.last_dir.clone();
             if s.is_empty() {
@@ -109,10 +143,8 @@ pub fn run_auto_sync(settings: &Settings, log: &mut dyn FnMut(String)) -> i32 {
                 Some(PathBuf::from(s))
             }
         });
-    // data dir 由设置里的 last_dir 派生不可靠，优先用显式存储的 data_dir 键（见 settings.data_dir 扩展）
-    // 这里从环境变量或 last_dir 目录推断；GUI 安装定时任务时会写 data_dir 到 settings。
     let Some(data_dir) = data_dir else {
-        log("未配置数据目录，auto-sync 退出".to_string());
+        log("未配置数据目录（data_dir / last_dir 均为空），auto-sync 退出".to_string());
         return 1;
     };
     let export_dir = if settings.export.auto_sync.export_dir.is_empty() {

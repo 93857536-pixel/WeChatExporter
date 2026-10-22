@@ -36,8 +36,12 @@ pub fn build_index(export_root: &Path, log: &mut dyn FnMut(String)) -> Result<()
         .map_err(|e| crate::core::err(format!("建 wce_rows 表失败：{e}")))?;
     }
 
-    // 清空重建
-    let _ = conn.execute_batch("DELETE FROM wce_fts; DELETE FROM wce_rows;");
+    // 清空重建：两条 DELETE 独立执行（各自容错，不串 batch）——
+    // 旧写法串在一个 batch 里，fts_ok=false 时第一条 DELETE wce_fts 报 no such table
+    // 即中止整批，第二条 DELETE wce_rows 永不执行 → 多次重建旧数据累积。
+    // 无论本次走哪条路径，两表都清一遍（不存在的表报错被吞掉，无副作用）
+    let _ = conn.execute_batch("DELETE FROM wce_fts;");
+    let _ = conn.execute_batch("DELETE FROM wce_rows;");
 
     let sessions = session_dirs_with_chat_json(export_root);
     let mut total = 0usize;

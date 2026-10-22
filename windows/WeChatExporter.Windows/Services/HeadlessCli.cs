@@ -171,6 +171,12 @@ public static class HeadlessCli
                 var lastTs = IncrementalExport.LoadCursor(contact.Id, baseDir);
                 if (lastTs is { } after)
                 {
+                    // 先评估是否有增量，有才过滤；无增量时跳过（保护 base 目录历史）
+                    if (!IncrementalExport.HasIncremental(tempDir, after))
+                    {
+                        AutoSyncScheduler.AppendRunLog($"no-change {contact.DisplayName}（{contact.Id}）");
+                        continue;
+                    }
                     count = IncrementalExport.FilterArtifacts(tempDir, contact.Id, after, null);
                     if (count == 0)
                     {
@@ -299,10 +305,24 @@ public static class HeadlessCli
     private static int RunReport(string[] rest)
     {
         var dir = ResolveDir(rest);
-        var ok = true;
-        if (AnnualReportService.Write(dir, Console.WriteLine) is null) ok = false;
-        if (CalendarExtractService.Extract(dir, Console.WriteLine) == 0) ok = false;
-        return ok ? 0 : 1;
+        // 「目录里根本没有 chat.json」= 无数据，属正常（退出 0）；
+        // 只有「有数据但年度报告写失败」才算失败（退出 1）。日历 0 事件不算失败
+        // （聊天里不含约定词很正常）。
+        var hasData = false;
+        if (Directory.Exists(dir))
+        {
+            try { hasData = Directory.EnumerateFiles(dir, "chat.json", SearchOption.AllDirectories).Any(); }
+            catch { /* 无法枚举按无数据处理 */ }
+        }
+        if (!hasData)
+        {
+            Console.WriteLine("report: 无消息数据（nothing to do，exit 0）");
+            return 0;
+        }
+        var annualOk = AnnualReportService.Write(dir, Console.WriteLine) is not null;
+        var calEvents = CalendarExtractService.Extract(dir, Console.WriteLine);
+        if (calEvents == 0) Console.WriteLine("report: 日历事件 0 条（正常）");
+        return annualOk ? 0 : 1;
     }
 
     private static string IsoNow() => DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");

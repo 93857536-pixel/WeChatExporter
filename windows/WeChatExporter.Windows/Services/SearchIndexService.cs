@@ -173,8 +173,11 @@ public static class SearchIndexService
         }
         else
         {
-            var pattern = "%" + kw + "%";
-            cmd.CommandText = "SELECT chat, ts, sender, content FROM wce_rows WHERE lower(content) LIKE lower($p) OR lower(sender) LIKE lower($p) ORDER BY ts DESC LIMIT $n";
+            // LIKE 降级：先转义关键词里的 LIKE 特殊字符（% _ \），再加 ESCAPE 子句，
+            // 否则用户搜 "100%" / "a_b" 时 %/_ 被当通配符（匹配范围失控，非报错但结果错）
+            var esc = kw.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+            var pattern = "%" + esc + "%";
+            cmd.CommandText = "SELECT chat, ts, sender, content FROM wce_rows WHERE lower(content) LIKE lower($p) ESCAPE '\\' OR lower(sender) LIKE lower($p) ESCAPE '\\' ORDER BY ts DESC LIMIT $n";
             cmd.Parameters.AddWithValue("$p", pattern);
             cmd.Parameters.AddWithValue("$n", limit);
         }
@@ -240,6 +243,9 @@ public static class SearchIndexService
             {
                 var source = r.ValueKind == JsonValueKind.Object && r.TryGetProperty("message", out var m) ? m : r;
                 var ts = GetInt(source, "create_time", "timestamp") ?? GetInt(r, "create_time", "timestamp") ?? 0;
+                // 毫秒时间戳归一为秒（与 WxCliService.FormatTime / ChatStatsReport 同口径；
+                // 否则 Hit.TimeText 会把 13 位毫秒当秒，显示成「约 5 万年后」）
+                if (ts > 100_000_000_000L) ts /= 1000;
                 var sender = GetString(r, "sender_display_name", "sender", "from", "display_name")
                     ?? GetString(source, "sender_display_name", "sender") ?? "未知";
                 var type = GetInt(source, "local_type", "type") ?? 0;
@@ -308,7 +314,7 @@ public static class SearchIndexService
         try
         {
             using var cmd = db.CreateCommand();
-            cmd.CommandText = "CREATE VIRTUAL TABLE wce_fts USING fts5(chat TEXT, ts UNINDEXED, sender TEXT, content TEXT)";
+            cmd.CommandText = "CREATE VIRTUAL TABLE wce_fts USING fts5(chat TEXT, ts UNINDEXED, sender TEXT, content TEXT, tokenize = \"trigram\")";
             cmd.ExecuteNonQuery();
             return true;
         }

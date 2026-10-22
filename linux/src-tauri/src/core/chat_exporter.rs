@@ -113,14 +113,17 @@ fn load_messages(db_url: &Path, table: &str, contact_map: &ContactMap) -> Result
     // Name2Id: rowid -> user_name
     let mut name_map: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
     if let Ok(mut stmt) = conn.prepare("SELECT rowid, user_name FROM Name2Id") {
-        let mut rows = stmt.query([]).unwrap_or_else(|_| panic!("query Name2Id"));
-        while let Ok(Some(row)) = rows.next() {
-            let rowid = db::coerce_int(&row, 0);
-            let name: String = match row.get_ref(1) {
-                Ok(rusqlite::types::ValueRef::Text(t)) => String::from_utf8_lossy(t).into_owned(),
-                _ => String::new(),
-            };
-            name_map.insert(rowid, name);
+        // query 失败（损坏库/IO 错误）不应 panic 拖垮整个进程，Name2Id 缺失时
+        // 发件人退化为空名即可（与下方 prepare 失败的容错口径一致）
+        if let Ok(mut rows) = stmt.query([]) {
+            while let Ok(Some(row)) = rows.next() {
+                let rowid = db::coerce_int(&row, 0);
+                let name: String = match row.get_ref(1) {
+                    Ok(rusqlite::types::ValueRef::Text(t)) => String::from_utf8_lossy(t).into_owned(),
+                    _ => String::new(),
+                };
+                name_map.insert(rowid, name);
+            }
         }
     }
 

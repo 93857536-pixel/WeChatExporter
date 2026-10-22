@@ -199,18 +199,47 @@ pub fn decrypt_file(
 
     std::fs::create_dir_all(dest_dir)
         .map_err(|e| crate::core::err(format!("创建目录失败：{e}")))?;
+    let dest_canon = dest_dir
+        .canonicalize()
+        .map_err(|e| crate::core::err(format!("规范化目标目录失败：{e}")))?;
+    let mut skipped = 0usize;
     for (path, data) in &entries {
+        // zip-slip 防护：条目路径来自 .wxenc 内容（不可信输入）。
+        // 拒绝绝对路径与任何 `..` 段，并把最终路径规范化后校验仍在 dest_dir 内。
+        let rejected = path.starts_with('/') || path.split('/').any(|seg| seg == "..");
+        if rejected {
+            skipped += 1;
+            log(format!("解密：跳过非法路径条目（越界写保护）：{path}"));
+            continue;
+        }
         let native = path.replace('/', std::path::MAIN_SEPARATOR_STR);
-        let url = dest_dir.join(native);
+        let url = dest_dir.join(&native);
         if let Some(parent) = url.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| crate::core::err(format!("创建目录失败：{e}")))?;
         }
+        // 再保险一层：写前校验目标仍在 dest_dir 之下（防御 `a/../b` 归一化越界）
+        if let Ok(canon) = url.canonicalize() {
+            if !canon.starts_with(&dest_canon) {
+                skipped += 1;
+                log(format!(
+                    "解密：跳过越界条目（规范化后不在目标目录内）：{path}"
+                ));
+                continue;
+            }
+        }
         std::fs::write(&url, data).map_err(|e| crate::core::err(format!("写文件失败：{e}")))?;
     }
     let n = entries.len();
-    log(format!("解密完成：{n} 个文件 → {}", dest_dir.display()));
-    Ok(n)
+    if skipped > 0 {
+        log(format!(
+            "解密完成：{n} 个文件（{skipped} 个非法路径条目被跳过）→ {}",
+            dest_dir.display()
+        ));
+    } else {
+        log(format!("解密完成：{n} 个文件 → {}", dest_dir.display()));
+    }
+    Ok(n - skipped)
 }
 
 #[cfg(test)]
@@ -261,5 +290,64 @@ mod tests {
         encrypt_directory(&src, "right", &enc, &mut log).unwrap();
         let dest = dir.path().join("dest");
         assert!(decrypt_file(&enc, "wrong", &dest, &mut log).is_err());
+    }
+
+    #[test]
+    fn path_traversal_rejected() {
+        // 手工构造含越界路径的 blob（绕过 encrypt_directory 的白名单收集），
+        // 模拟攻击者用已知密码发给用户的恶意 .wxenc
+        let dir = tempfile::tempdir().unwrap();
+        let enc = dir.path().join("evil.wxenc");
+        let dest = dir.path().join("dest");
+
+        // 手工组 blob：2 条目，一个合法、一个 ../../evil.txt（越界）
+        let salt = [7u8; 32];
+        let nonce = [9u8; 12];
+        let key = {
+            let mut k = [0u8; 32];
+            pbkdf2_hmac::<Sha256>(b"secret", &salt, PBKDF2_ROUNDS, &mut k);
+            k
+        };
+        let mut blob = Vec::new();
+        blob.extend_from_slice(&2u64.to_le_bytes());
+        let p1 = "good.txt".as_bytes();
+        let d1 = b"hello".to_vec();
+        blob.extend_from_slice(&(d1.len() as u64).to_le_bytes());
+        blob.extend_from_slice(p1);
+        blob.push(0);
+        blob.extend_from_slice(&d1);
+        let p2 = "../evil.txt".as_bytes();
+        let d2 = b"pwned".to_vec();
+        blob.extend_from_slice(&(d2.len() as u64).to_le_bytes());
+        blob.extend_from_slice(p2);
+        blob.push(0);
+        blob.extend_from_slice(&d2);
+
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+        let gcm = cipher
+            .encrypt(&Nonce::from_slice(&nonce), blob.as_ref())
+            .unwrap();
+        let mut file = Vec::new();
+        file.extend_from_slice(MAGIC);
+        file.push(VERSION);
+        file.extend_from_slice(&[0x00, 0x00]);
+        file.extend_from_slice(&salt);
+        file.extend_from_slice(&nonce);
+        file.extend_from_slice(&gcm);
+        std::fs::write(&enc, &file).unwrap();
+
+        let mut skipped = 0;
+        let mut log = |s: String| {
+            eprintln!("{s}");
+            if s.contains("跳过") {
+                skipped += 1;
+            }
+        };
+        let n = decrypt_file(&enc, "secret", &dest, &mut log).unwrap();
+        // 合法条目还原、越界条目被拦截
+        assert_eq!(n, 1);
+        assert_eq!(std::fs::read(dest.join("good.txt")).unwrap(), b"hello");
+        assert!(!dest.join("..").join("evil.txt").exists());
+        assert!(skipped >= 1, "越界条目必须有跳过日志");
     }
 }

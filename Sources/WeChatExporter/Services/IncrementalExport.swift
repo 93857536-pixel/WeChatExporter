@@ -51,6 +51,43 @@ enum IncrementalExport {
         }
     }
 
+    /// 评估「是否有增量」：tempDir 的 chat.json 里是否存在 timestamp > after 的行。
+    /// 无副作用（不写任何文件）——供「先判后写」场景使用，避免 filterArtifacts 把
+    /// 增量只留下之后，copyTextArtifacts 再把「只剩增量」的 chat.json 覆盖 base 目录历史。
+    static func hasIncremental(in outputDir: URL, after: Int) -> Bool {
+        let jsonURL = outputDir.appendingPathComponent("chat.json")
+        guard let data = try? Data(contentsOf: jsonURL) else { return false }
+        guard let root = try? JSONSerialization.jsonObject(with: data) else { return false }
+        let rows: [[String: Any]]
+        if let array = root as? [[String: Any]] {
+            rows = array
+        } else if let dict = root as? [String: Any] {
+            rows = (dict["items"] as? [[String: Any]])
+                ?? (dict["messages"] as? [[String: Any]])
+                ?? (dict["results"] as? [[String: Any]])
+                ?? []
+        } else {
+            rows = []
+        }
+        return rows.contains { Self.tsOf($0) > after }
+    }
+
+    /// 行级时间戳提取（与 filterArtifacts 原局部 tsOf 同口径）。
+    private static func tsOf(_ row: [String: Any]) -> Int {
+        let nested = row["message"] as? [String: Any]
+        let source = nested ?? row
+        for el in [source, row] {
+            for key in ["timestamp", "create_time"] {
+                if let v = el[key] {
+                    if let n = v as? Int { return n }
+                    if let n = v as? Double { return Int(n) }
+                    if let s = v as? String, let n = Int(s) { return n }
+                }
+            }
+        }
+        return 0
+    }
+
     /// 过滤导出产物：chat.json / chat.txt / chat.csv 只保留 timestamp > after 的消息。
     /// 返回保留条数；0 表示无新增（产物已被清空）。
     static func filterArtifacts(

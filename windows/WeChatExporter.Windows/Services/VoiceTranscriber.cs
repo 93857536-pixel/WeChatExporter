@@ -68,7 +68,16 @@ public static class VoiceTranscriber
         foreach (var name in preferred)
         {
             var p = Path.Combine(ModelDirectory, name);
-            if (File.Exists(p)) return p;
+            // 最小大小校验：上次下载被中断留下的半成品（几 MB 残片）会被
+            // whisper-cli 加载时当作损坏模型。合法 ggml-base 模型 ≥ ~140MB，
+            // 用 50MB 作下限（能覆盖所有多语言 base/small 模型且高于任何残片）
+            try
+            {
+                var fi = new FileInfo(p);
+                if (!fi.Exists || fi.Length < 50_000_000L) continue;
+            }
+            catch { continue; }
+            return p;
         }
         return null;
     }
@@ -211,22 +220,36 @@ public static class VoiceTranscriber
             }
             Directory.CreateDirectory(ModelDirectory);
             var dest = Path.Combine(ModelDirectory, "ggml-base-multi.bin");
+            // 先写 .part 临时文件，成功后原子重命名为正式名——
+            // 避免任何异常（网络中断/磁盘满/OOM）留下「名字正确但内容残缺」的半成品
+            var part = dest + ".part";
             log?.Invoke("开始下载 whisper 模型 ggml-base-multi.bin（约 141MB）…");
             using var http = new System.Net.Http.HttpClient();
             using var stream = await http.GetStreamAsync(ModelDownloadUrl, ct);
-            using var fs = File.Create(dest);
-            var buffer = new byte[1024 * 256];
-            long total = 0;
-            while (true)
+            using (var fs = File.Create(part))
             {
-                int read;
-                try { read = await stream.ReadAsync(buffer, ct); }
-                catch (OperationCanceledException) { File.Delete(dest); throw; }
-                if (read <= 0) break;
-                fs.Write(buffer, 0, read);
-                total += read;
-                progress?.Invoke(Math.Min(total / 148_000_000.0, 1.0), $"{total / 1048576.0:F0} / ~141 MB");
+                var buffer = new byte[1024 * 256];
+                long total = 0;
+                while (true)
+                {
+                    int read;
+                    try { read = await stream.ReadAsync(buffer, ct); }
+                    catch (OperationCanceledException) { try { File.Delete(part); } catch { /* ignore */ } throw; }
+                    if (read <= 0) break;
+                    fs.Write(buffer, 0, read);
+                    total += read;
+                    progress?.Invoke(Math.Min(total / 148_000_000.0, 1.0), $"{total / 1048576.0:F0} / ~141 MB");
+                }
             }
+            // 大小下限校验后再落地（残缺文件宁可重下一次）
+            var partLen = new FileInfo(part).Length;
+            if (partLen < 50_000_000L)
+            {
+                try { File.Delete(part); } catch { /* ignore */ }
+                throw new InvalidOperationException($"whisper 模型下载不完整（{partLen} 字节），请重试");
+            }
+            if (File.Exists(dest)) File.Delete(dest);
+            File.Move(part, dest);
             log?.Invoke($"whisper 模型已下载：{dest}");
             return (true, dest);
         }, ct);
@@ -246,9 +269,14 @@ public static class VoiceTranscriber
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("无法启动 " + Path.GetFileName(executable));
-        var stdout = proc.StandardOutput.ReadToEnd();
-        var stderr = proc.StandardError.ReadToEnd();
+        // 两路 stdout/stderr 并行异步读：whisper-cli 的 stderr 输出（进度/计时）可能先于
+        // stdout 填满 4KB 管道缓冲区，旧写法「先 ReadToEnd(stdout) 再 ReadToEnd(stderr)」
+        // 在子进程等 stderr 被消费而父进程死等 stdout 时会互相卡死（管道死锁）
+        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+        var stderrTask = proc.StandardError.ReadToEndAsync();
         proc.WaitForExit();
+        var stdout = stdoutTask.GetAwaiter().GetResult();
+        var stderr = stderrTask.GetAwaiter().GetResult();
         if (proc.ExitCode != 0)
         {
             var detail = (stderr + stdout).Trim();

@@ -369,6 +369,11 @@ final class AppViewModel: ObservableObject {
                         let exportDirPath = base.path
                         let lastTs = IncrementalExport.loadCursor(contactID: contact.id, exportDir: exportDirPath)
                         if let lastTs {
+                            // 先评估是否有增量（无副作用），无增量则跳过（保护 base 目录历史）
+                            if !IncrementalExport.hasIncremental(in: tempDir, after: lastTs) {
+                                summary.append("• \(contact.displayName)：无新增消息，已跳过")
+                                continue
+                            }
                             count = IncrementalExport.filterArtifacts(in: tempDir, contactID: contact.id, after: lastTs, log: logHandler())
                             if count == 0 {
                                 summary.append("• \(contact.displayName)：无新增消息，已跳过")
@@ -505,6 +510,11 @@ final class AppViewModel: ObservableObject {
                         let exportDirPath = base.path
                         let lastTs = IncrementalExport.loadCursor(contactID: contact.id, exportDir: exportDirPath)
                         if let lastTs {
+                            // 先评估是否有增量（无副作用），无增量则跳过（保护 base 目录历史）
+                            if !IncrementalExport.hasIncremental(in: tempDir, after: lastTs) {
+                                summary.append("• \(contact.displayName)：无新增消息，已跳过")
+                                continue
+                            }
                             count = IncrementalExport.filterArtifacts(in: tempDir, contactID: contact.id, after: lastTs, log: logHandler())
                             if count == 0 {
                                 summary.append("• \(contact.displayName)：无新增消息，已跳过")

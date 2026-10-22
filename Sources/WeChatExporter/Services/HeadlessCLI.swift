@@ -184,6 +184,11 @@ enum HeadlessCLI {
             let exportDirPath = base.path
             let lastTs = IncrementalExport.loadCursor(contactID: contact.id, exportDir: exportDirPath)
             if let lastTs {
+                // 先评估是否有增量（无副作用），无增量则跳过（保护 base 目录历史）
+                if !IncrementalExport.hasIncremental(in: tempDir, after: lastTs) {
+                    AutoSyncScheduler.appendRunLog("no-change \(contact.displayName)（\(contact.id)）")
+                    continue
+                }
                 result.count = IncrementalExport.filterArtifacts(in: tempDir, contactID: contact.id, after: lastTs, log: { _ in })
                 if result.count == 0 {
                     AutoSyncScheduler.appendRunLog("no-change \(contact.displayName)（\(contact.id)）")
@@ -300,10 +305,24 @@ enum HeadlessCLI {
 
     private static func runReport(_ rest: [String]) -> Int32 {
         let dir = resolveDir(rest)
-        var ok = true
-        if AnnualReportService.write(in: dir, log: { print($0) }) == nil { ok = false }
-        if CalendarExtractService.extract(in: dir, log: { print($0) }) == 0 { ok = false }
-        return ok ? 0 : 1
+        // 「目录里根本没有 chat.json」= 无数据，属正常（exit 0）；
+        // 只有「有数据但年度报告写失败」才算失败（exit 1）。日历 0 事件不算失败。
+        var hasData = false
+        let fm = FileManager.default
+        if let en = fm.enumerator(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for case let url as URL in en where url.lastPathComponent == "chat.json" {
+                hasData = true
+                break
+            }
+        }
+        if !hasData {
+            print("report: 无消息数据（nothing to do，exit 0）")
+            return 0
+        }
+        let annualPath = AnnualReportService.write(in: dir, log: { print($0) })
+        let calEvents = CalendarExtractService.extract(in: dir, log: { print($0) })
+        if calEvents == 0 { print("report: 日历事件 0 条（正常）") }
+        return annualPath != nil ? 0 : 1
     }
 
     // MARK: - 工具

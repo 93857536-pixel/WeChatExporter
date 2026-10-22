@@ -131,7 +131,9 @@ enum ImageExporter {
     }
 
     private static func pickURL(from attrs: [String: String]) -> String? {
-        for key in ["cdnbigimgurl", "cdnmidimgurl", "cdnthumburl", "cdnurl", "tpurl", "encrypturl", "attachurl"] {
+        // 只选「明文」CDN url；encrypturl 是密文，主 fetch 拿到后无法直接归一化，
+        // 若放进候选链会导致 fetchURL 返回非 nil 的密文，让下方 AES 解密兜底永不触发。
+        for key in ["cdnbigimgurl", "cdnmidimgurl", "cdnthumburl", "cdnurl", "tpurl", "attachurl"] {
             if let value = attrs[key], !value.isEmpty, value != "null" { return value }
         }
         return nil
