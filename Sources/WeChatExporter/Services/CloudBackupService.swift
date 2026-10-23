@@ -332,7 +332,14 @@ enum CloudBackupTransfer {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("wce-cloudbackup-\(UUID().uuidString).wxenc")
         _ = try EncryptedExport.encryptDirectory(dir, password: password, to: tmp, log: { _ in })
-        let size = (try? FileManager.default.attributesOfItem(atPath: tmp.path)[.size] as? NSNumber)?.int64Value ?? 0
+        // #46：加密落盘校验——encryptDirectory 返回前文件必须存在且非 0 字节，
+        // 否则（IO 异常/空间不足）宁可抛错，也不能把 0 字节 .wxenc 当成功上传。
+        let attrs = try FileManager.default.attributesOfItem(atPath: tmp.path)
+        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+        guard size > 0 else {
+            try? FileManager.default.removeItem(at: tmp)
+            throw CloudBackupError.server("加密产物为空，上传已取消")
+        }
         let sha = try sha256Hex(ofFile: tmp)
         return (tmp, size, sha)
     }

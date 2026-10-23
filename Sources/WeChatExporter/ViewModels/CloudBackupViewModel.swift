@@ -201,7 +201,11 @@ final class CloudBackupViewModel: ObservableObject {
                 }.value
                 self?.statusMessage = "上传完成"
                 self?.logger.info("云备份上传完成")
-                await self?.refresh()
+                // #46：Task 被取消（用户停止）时不再刷新 UI，避免进度条已隐藏
+                // 但文件列表意外变化的状态不一致。
+                if !Task.isCancelled {
+                    await self?.refresh()
+                }
             } catch {
                 self?.showError(error.localizedDescription)
             }

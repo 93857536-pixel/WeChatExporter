@@ -82,6 +82,12 @@ enum DatImageDecoder {
         let process = Process()
         process.executableURL = wxCli
         process.arguments = ["decode-image", dat.path, "-d", accountDir.path, "-o", outURL.path]
+        // #46：与 WxCliService 一致，只传 PATH/HOME，避免父进程代理变量干扰。
+        let inherited = ProcessInfo.processInfo.environment
+        process.environment = [
+            "PATH": inherited["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": inherited["HOME"] ?? NSHomeDirectory(),
+        ]
         let errPipe = Pipe()
         process.standardOutput = Pipe()
         process.standardError = errPipe
@@ -93,8 +99,13 @@ enum DatImageDecoder {
                 log("已解密图片：\(dat.lastPathComponent)")
                 return true
             }
+            // #46：落盘失败时把 stderr 带进日志，避免静默吞掉 wx-cli 的真实报错
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let errText = String(data: errData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            log("图片解码失败：\(dat.lastPathComponent)（\(process.terminationStatus) \(errText)")
         } catch {
-            return false
+            log("图片解码启动失败：\(dat.lastPathComponent)（\(error.localizedDescription)）")
         }
         return false
     }

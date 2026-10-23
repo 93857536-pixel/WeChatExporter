@@ -2,6 +2,52 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.21.3] - 2026-10-22
+
+### Fixed（三端复审 + 主会话自查，2 轮深度代码审计后的剩余项）
+
+**安全（high）**
+- 🔴 **macOS AutoSyncScheduler shell 注入**：`run()` 把 launchctl 参数数组
+  `joined(" ")` 后经 `/bin/sh -c` 执行；导出目录/联系人 JSON 等用户可控值若含
+  `; $ ` |` 等 shell 元字符即任意命令执行。修法：直接 exec（第一个参数按
+  PATH 解析为绝对可执行文件，其余参数原样传 array），完全不经 shell。
+- 🔴 **Windows .wxenc 解密 zip-slip**：`EncryptedExport.DecryptFile` 对 blob 内
+  条目路径只做 `Path.Combine`，`../evil` 会越出目标目录写任意位置。
+  修法：`Path.GetFullPath` 后校验以目标目录为前缀，否则抛异常。
+- 🔴 **macOS .wxenc 解密 zip-slip（主会话自查补漏）**：Swift 版
+  `EncryptedExport.decryptFile` 与 C# 同型缺陷（上轮只修了 Rust），
+  同样加 `standardizedFileURL` 前缀校验。
+
+**稳定性/数据（med）**
+- 🟠 **macOS UpdateService 误删父目录**：`clearPendingInstall` 删的是
+  待安装 .app 的父目录（pending-update-<version>/）而非 .app 本身，
+  语义过激且与 prepareSilentUpdate 的整目录清理重复。改为只删 .app。
+- 🟠 **macOS 云备份取消后状态不一致**：上传/下载 Task 被用户停止后
+  仍调 `refresh()` 刷新文件列表（进度条已隐藏）。加 `Task.isCancelled` 守卫。
+- 🟠 **macOS 云备份加密产物 0 字节假成功**：`encryptDirectory` 用
+  `try?` 读 size 得 0 后继续上传空文件且报「提交完成」。改为属性读取
+  失败即抛错、size=0 抛错并清理临时文件。
+- 🟠 **Windows HeadlessCli 自动同步阻塞死锁隐患**：`RunAutoSync` 在
+  `OnStartup` 早于 WPF 安装同步上下文的阶段调用 async 方法
+  `.GetAwaiter().GetResult()`，当前路径不可复现，但若将来调用点移到
+  已安装 SynchronizationContext 的环境（UI 线程/Dispatcher）即死锁。
+  修法：阻塞段前显式 `SetSynchronizationContext(null)`（finally 还原），
+  async 续体落线程池，阻塞调用永久安全。
+
+**健壮性（low）**
+- ⚪ **macOS 单文件导出 media 相对路径**：`mediaRoot.path + "/"` 字符串前缀
+  匹配在末尾无斜杠的构造方式下算错 rel → 图片 404。改用 URL 标准化前缀差。
+- ⚪ **macOS ExportMode 大小写静默回退**：UserDefaults 存入 `"ALL"`/
+  `"Categorized"` 等异常值时静默回退 `.categorized`。统一小写匹配。
+- ⚪ **macOS wx-cli 子进程继承全量环境变量**（WxCliService + DatImageDecoder
+  两处）：父进程代理变量（HTTP_PROXY 等）可能干扰 wx-cli 密钥/缓存定位。
+  只传 PATH/HOME。
+- ⚪ **macOS DatImageDecoder 静默吞错**：wx-cli 解码失败不回传 stderr/
+  启动异常。补日志（退出码 + stderr 文本）。
+
+- 版本号：6 处 → 2.21.3（macOS APP_VERSION / Win csproj / Linux Cargo.toml +
+  tauri.conf.json + package.json）
+
 ## [2.21.2] - 2026-10-21
 
 ### Fixed（三端全量审计修复，macOS/Windows/Linux）

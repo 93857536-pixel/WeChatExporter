@@ -104,6 +104,24 @@ public static class HeadlessCli
 
     private static int RunAutoSync()
     {
+        // #46：无头阻塞段显式清空 SynchronizationContext 再执行 .GetAwaiter().GetResult()。
+        // 若将来任何调用方处于已安装同步上下文（UI 线程/Dispatcher）的环境，
+        // async 方法内的 await 会把续体回投到该上下文，而主线程又被 GetResult 阻塞
+        // → 死锁。清空后 async 状态机捕获 null，续体落在线程池，阻塞调用安全。
+        var priorContext = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(null);
+            return RunAutoSyncCore();
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(priorContext);
+        }
+    }
+
+    private static int RunAutoSyncCore()
+    {
         void Log(string line)
         {
             AutoSyncScheduler.AppendRunLog(line);

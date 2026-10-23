@@ -106,9 +106,28 @@ enum AutoSyncScheduler {
     private struct RunResult { let exit: Int32; let output: String }
 
     private static func run(_ args: [String]) -> RunResult {
+        // 直接 exec 第一个参数对应的可执行文件（如 /usr/bin/launchctl），
+        // 不经 /bin/sh：exportDir/contactIDsJSON 等用户可控值若含 shell 元字符
+        // （; $ ` | 等）不会被解释执行（#46：shell 注入）。
         let p = Process()
-        p.launchPath = "/bin/sh"
-        p.arguments = ["-c", args.joined(separator: " ")]
+        guard var executable = args.first else { return RunResult(exit: 1, output: "empty args") }
+        // 相对程序名（如 "launchctl"）需解析为绝对路径：Process.executableURL 不做 PATH 查找
+        if !executable.contains("/") {
+            var resolved: String?
+            for dir in (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin")
+                .split(separator: ":")
+            {
+                let candidate = "\(dir)/\(executable)"
+                if FileManager.default.isExecutableFile(atPath: candidate) {
+                    resolved = candidate
+                    break
+                }
+            }
+            guard let resolved else { return RunResult(exit: 127, output: "command not found: \(executable)") }
+            executable = resolved
+        }
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = Array(args.dropFirst())
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe

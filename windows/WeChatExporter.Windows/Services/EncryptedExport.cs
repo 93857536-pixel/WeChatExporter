@@ -95,10 +95,18 @@ public static class EncryptedExport
         var entries = ReadEntries(file, password);
 
         Directory.CreateDirectory(destDir);
+        // #46：拒绝 zip-slip——blob 内路径若含 ".." 段或为绝对路径，
+        // 规范化后越出 destDir 即写到任意位置（攻击者可构造恶意 .wxenc）。
+        string destRoot = Path.GetFullPath(destDir).TrimEnd(Path.DirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
         foreach (var (path, data) in entries)
         {
             var native = path.Replace('/', Path.DirectorySeparatorChar);
             var url = Path.GetFullPath(Path.Combine(destDir, native));
+            if (!url.StartsWith(destRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new EncryptedExportException($"拒绝解密条目（路径越出目标目录）：{path}");
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(url)!);
             File.WriteAllBytes(url, data);
         }

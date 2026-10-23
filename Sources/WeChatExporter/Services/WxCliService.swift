@@ -591,7 +591,13 @@ final class WxCliService {
             let process = Process()
             process.executableURL = executable
             process.arguments = args
-            process.environment = ProcessInfo.processInfo.environment
+            // #46：只传递必要环境变量（PATH/HOME），避免父进程的代理
+            // （HTTP_PROXY/HTTPS_PROXY）等干扰 wx-cli 的密钥/缓存定位。
+            let inherited = ProcessInfo.processInfo.environment
+            process.environment = [
+                "PATH": inherited["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+                "HOME": inherited["HOME"] ?? NSHomeDirectory(),
+            ]
 
             let stdout = Pipe()
             let stderr = Pipe()

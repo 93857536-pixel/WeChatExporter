@@ -95,10 +95,16 @@ public enum EncryptedExport {
         let entries = try readEntries(file, password: password)
         let fm = FileManager.default
         try fm.createDirectory(at: destDir, withIntermediateDirectories: true)
+        // #46：拒绝 zip-slip——blob 内路径若含 ".." 段或为绝对路径，规范化后
+        // 会越出 destDir 写到任意位置（攻击者可构造恶意 .wxenc）。
+        let destPrefix = destDir.standardizedFileURL.path
         for (path, data) in entries {
-            // blob 内路径统一用 /，转成当前平台分隔符（macOS 下为 /，no-op）
             let native = path.replacingOccurrences(of: "/", with: nativeSeparator)
             let url = destDir.appendingPathComponent(native)
+            let canonical = url.standardizedFileURL.path
+            guard canonical == destPrefix || canonical.hasPrefix(destPrefix + "/") else {
+                throw Error(message: "拒绝解密条目（路径越出目标目录）：\(path)")
+            }
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url)
         }

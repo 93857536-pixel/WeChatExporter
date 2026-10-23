@@ -73,8 +73,11 @@ enum ExportModePreferences {
 
     static var mode: ExportMode {
         get {
-            let raw = UserDefaults.standard.string(forKey: Keys.mode) ?? ExportMode.categorized.rawValue
-            return ExportMode(rawValue: raw) ?? .categorized
+            // #46：容忍历史/异常存储值的大小写差异（如 "ALL"），统一小写后再匹配，
+            // 避免静默回退到 .categorized 让用户感知到模式被改变。
+            let raw = (UserDefaults.standard.string(forKey: Keys.mode) ?? ExportMode.categorized.rawValue)
+                .lowercased()
+            return ExportMode.allCases.first(where: { $0.rawValue.lowercased() == raw }) ?? .categorized
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: Keys.mode)

@@ -585,7 +585,17 @@ enum SingleFileExporter {
         var html = ""
         for case let fileURL as URL in enumerator {
             guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
-            let rel = "media/" + fileURL.path.replacingOccurrences(of: mediaRoot.path + "/", with: "")
+            // #46：相对路径走 URL 标准操作（standardizedFileURL 规范化后再取前缀差），
+            // 避免字符串前缀匹配在 mediaRoot 末尾无斜杠时算错 rel 导致 404。
+            let rel: String
+            let standardizedFile = fileURL.standardizedFileURL.path
+            let standardizedRoot = mediaRoot.standardizedFileURL.path
+            if standardizedFile.hasPrefix(standardizedRoot) {
+                let suffix = String(standardizedFile.dropFirst(standardizedRoot.count + 1))
+                rel = "media/" + suffix
+            } else {
+                rel = "media/" + fileURL.lastPathComponent
+            }
             guard embedded.insert(rel).inserted else { continue }
             guard let block = embedMedia(relativePath: rel, sourceDir: sourceDir) else { continue }
             html += """

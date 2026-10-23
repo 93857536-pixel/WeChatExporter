@@ -357,7 +357,10 @@ final class UpdateService {
     /// 清除待安装记录（取消或清理）
     static func clearPendingInstall() {
         if let path = UpdatePreferences.pendingInstallPath {
-            try? FileManager.default.removeItem(atPath: URL(fileURLWithPath: path).deletingLastPathComponent().path)
+            // #46：只删除待安装 .app 本身。旧实现删的是 .app 的父目录
+            // (pending-update-<version>/)，语义过激且与 prepareSilentUpdate
+            // 里整目录清理（L346）重复。
+            try? FileManager.default.removeItem(atPath: path)
         }
         UpdatePreferences.pendingInstallPath = nil
         UpdatePreferences.pendingInstallVersion = nil
