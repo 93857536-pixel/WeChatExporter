@@ -416,6 +416,21 @@ final class AppViewModel: ObservableObject {
                         summary.append("• \(contact.displayName)：\(count) 条（文字 + 媒体文件）")
                     }
 
+                    // Single-file HTML export (optional, enabled by default)
+                    if ExportModePreferences.singleFileHtmlEnabled && mode != .textOnly {
+                        let htmlDir: URL = mode == .categorized
+                            ? base.appendingPathComponent("\(Self.sanitizeContactDirName(contact.displayName))", isDirectory: true)
+                            : base.appendingPathComponent(contact.displayName, isDirectory: true)
+                        try? FileManager.default.createDirectory(at: htmlDir, withIntermediateDirectories: true)
+                        if let htmlURL = try? SingleFileExporter.writeHTML(
+                            from: tempDir,
+                            contactName: contact.displayName,
+                            into: htmlDir
+                        ) {
+                            summary.append("• \(contact.displayName) HTML → \(htmlURL.lastPathComponent)")
+                        }
+                    }
+
                     // v2.19 过滤导出（SPEC §4：先过滤，后续产物基于过滤后的 chat.json）
                     let jsonDir: URL = mode == .categorized
                         ? base.appendingPathComponent("\(Self.sanitizeContactDirName(contact.displayName))/文字", isDirectory: true)
@@ -906,6 +921,14 @@ final class AppViewModel: ObservableObject {
     func setImageOCREnabled(_ value: Bool) {
         imageOCREnabled = value
         ExportModePreferences.imageOCREnabled = value
+    }
+
+    /// Single-file HTML export switch (settings panel binding, default: true)
+    @Published var singleFileHtmlEnabled: Bool = ExportModePreferences.singleFileHtmlEnabled
+
+    func setSingleFileHtmlEnabled(_ value: Bool) {
+        singleFileHtmlEnabled = value
+        ExportModePreferences.singleFileHtmlEnabled = value
     }
 
     /// 加密导出密码（仅内存持有，不落盘；留空 = 不加密，导出明文目录）

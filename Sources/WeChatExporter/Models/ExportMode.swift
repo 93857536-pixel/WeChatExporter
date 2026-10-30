@@ -46,6 +46,7 @@ enum ExportModePreferences {
         static let voiceTranscription = "export.voiceTranscription"
         static let imageOCR = "export.imageOCR"
         static let statsReport = "export.statsReport"
+        static let singleFileHtml = "export.singleFileHtml"
         static let incremental = "export.incremental"
         static let indexPage = "export.indexPage"
         static let customWxCliPath = "export.customWxCliPath"
@@ -114,6 +115,17 @@ enum ExportModePreferences {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Keys.statsReport)
+        }
+    }
+
+    /// 导出 setelah setiap kontak: buat single-file HTML (default: true)
+    static var singleFileHtmlEnabled: Bool {
+        get {
+            let v = UserDefaults.standard.object(forKey: Keys.singleFileHtml) as? Bool
+            return v ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Keys.singleFileHtml)
         }
     }
 

@@ -288,6 +288,30 @@ private struct ExportSettingsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // Single-file HTML export
+            TechCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "doc.fill")
+                            .foregroundStyle(AppTheme.accent)
+                        Text("单文件 HTML 导出")
+                            .font(.headline)
+                    }
+
+                    Toggle("导出每个联系人的聊天单文件 HTML（含媒体内嵌）", isOn: Binding(
+                        get: { model.singleFileHtmlEnabled },
+                        set: { model.setSingleFileHtmlEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+
+                    Text("为每个联系人生成一个完整的 HTML 文件（包含文字、图片、视频、语音转文字、OCR 结果）。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.subtleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // 增量导出
             TechCard {
                 VStack(alignment: .leading, spacing: 10) {
