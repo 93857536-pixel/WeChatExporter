@@ -293,10 +293,14 @@ public static class CalendarExtractService
         while (offset < bytes.Length)
         {
             var budget = first ? 75 : 74; // 续行含 1 个前导空格
-            int end = offset + budget;
-            // 不切在 UTF-8 多字节字符中间（回退到续行字节边界 0x80-0xBF 之前）
-            while (end < bytes.Length && end > offset && (bytes[end] & 0xC0) == 0x80) end--;
-            var chunk = Encoding.UTF8.GetString(bytes, offset, end - offset);
+            // ⚠️ end 必须钳到行尾（#45：原实现 end 越过尾部时回退循环不执行 → GetString 越界 ArgumentOutOfRangeException）
+            var chunkEnd = Math.Min(offset + budget, bytes.Length);
+            // 不切在 UTF-8 多字节字符中间（回退到字符边界：续行字节 0x80-0xBF 之前）
+            if (chunkEnd < bytes.Length)
+            {
+                while (chunkEnd > offset && (bytes[chunkEnd] & 0xC0) == 0x80) chunkEnd--;
+            }
+            var chunk = Encoding.UTF8.GetString(bytes, offset, chunkEnd - offset);
             if (first)
             {
                 sb.Append(chunk);
@@ -307,8 +311,8 @@ public static class CalendarExtractService
                 sb.Append(" ");
                 sb.Append(chunk);
             }
-            if (end < bytes.Length) sb.Append("\r\n");
-            offset = end;
+            if (chunkEnd < bytes.Length) sb.Append("\r\n");
+            offset = chunkEnd;
         }
         return sb.ToString();
     }

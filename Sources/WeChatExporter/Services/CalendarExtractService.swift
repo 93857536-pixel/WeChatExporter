@@ -318,18 +318,21 @@ enum CalendarExtractService {
         var offset = 0
         while offset < bytes.count {
             let budget = first ? 75 : 74 // 续行含 1 个前导空格
-            var end = offset + budget
-            // 不切在 UTF-8 多字节字符中间（回退到续行字节边界 0x80-0xBF 之前）
-            while end < bytes.count, end > offset, (bytes[end] & 0xC0) == 0x80 { end -= 1 }
-            let chunk = String(decoding: bytes[offset..<end], as: UTF8.self)
+            // ⚠️ end 必须钳到行尾（#45：原实现 end 越过尾部时回退循环不执行 → bytes[offset..<end] 越界 SIGTRAP）
+            var chunkEnd = min(offset + budget, bytes.count)
+            // 不切在 UTF-8 多字节字符中间（回退到字符边界：续行字节 0x80-0xBF 之前）
+            if chunkEnd < bytes.count {
+                while chunkEnd > offset, (bytes[chunkEnd] & 0xC0) == 0x80 { chunkEnd -= 1 }
+            }
+            let chunk = String(decoding: bytes[offset..<chunkEnd], as: UTF8.self)
             if first {
                 out += chunk
                 first = false
             } else {
                 out += " " + chunk
             }
-            if end < bytes.count { out += "\r\n" }
-            offset = end
+            if chunkEnd < bytes.count { out += "\r\n" }
+            offset = chunkEnd
         }
         return out
     }

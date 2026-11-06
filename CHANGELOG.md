@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.21.5] - 2026-11-06
+
+### Fixed（issue #45: 导出含日历内容时 macOS 崩溃 SIGTRAP）
+
+- **修复: ICS 行折叠越界崩溃（三端）**
+  - #45: macOS 导出含日历/ICS 内容的消息时 `CalendarExtractService.foldIcsLine` 数组越界（Array index out of range → SIGTRAP 闪退）
+  - Root cause: 折叠循环 `end = offset + budget` 超出字节尾时，回退循环 `while end < count` 不执行 → `bytes[offset..<end]` 越界；任何 SUMMARY/DESCRIPTION 行超 75 字节（中文约 25 字）必触发
+  - Fix: `end` 钳到 `min(offset+budget, count)` 再回退 UTF-8 字符边界；macOS（Swift）与 Windows（C# 同款）同修；Linux（Rust）补齐缺失的行折叠（此前超长行违反 RFC 5545 75-octet 规则）
+  - 行为验证: 修复前基线在真实数据上复现 SIGTRAP；修复后 mac 端到端 PASS（maxLineOctets=75）、Win 端到端 PASS、Linux cargo 回归测试 21/21 通过
 ## [2.21.4] - 2026-10-30
 
 ### Fixed（issue #44: 导出后缺少 .html 文件）

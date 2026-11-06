@@ -287,7 +287,7 @@ fn render_ics(events: &[CalendarEvent]) -> String {
         writeln!(out, "DTSTAMP:{dtstamp}").unwrap();
         writeln!(out, "DTSTART;TZID=Asia/Shanghai:{start}").unwrap();
         writeln!(out, "DTEND;TZID=Asia/Shanghai:{end}").unwrap();
-        writeln!(out, "SUMMARY:{}", ics_escape(&summary)).unwrap();
+        writeln!(out, "SUMMARY:{}", fold_ics_line(&ics_escape(&summary))).unwrap();
         writeln!(out, "END:VEVENT").unwrap();
     }
     out.push_str("END:VCALENDAR\r\n");
@@ -296,9 +296,44 @@ fn render_ics(events: &[CalendarEvent]) -> String {
 
 fn ics_escape(s: &str) -> String {
     s.replace('\\', "\\\\")
-        .replace(';', "\\;")
-        .replace(',', "\\,")
+        .replace(';', r"\;")
+        .replace(',', r"\,")
         .replace('\n', "\\n")
+}
+
+/// ICS 行折叠（RFC 5545 §3.1）：UTF-8 计 75 octet，续行行首一个空格。
+/// ⚠️ 与 mac/Win 端同口径（#45）：chunk 末端钳到字节尾，且回退到 UTF-8 字符边界。
+fn fold_ics_line(line: &str) -> String {
+    let bytes = line.as_bytes();
+    if bytes.len() <= 75 {
+        return line.to_string();
+    }
+    let mut out = String::new();
+    let mut first = true;
+    let mut offset = 0usize;
+    while offset < bytes.len() {
+        let budget = if first { 75 } else { 74 };
+        // end 钳到行尾，再回退到字符边界（续行字节 0x80-0xBF 之前）
+        let mut end = std::cmp::min(offset + budget, bytes.len());
+        if end < bytes.len() {
+            while end > offset && (bytes[end] & 0xC0) == 0x80 {
+                end -= 1;
+            }
+        }
+        let chunk = String::from_utf8_lossy(&bytes[offset..end]);
+        if first {
+            out.push_str(&chunk);
+            first = false;
+        } else {
+            out.push(' ');
+            out.push_str(&chunk);
+        }
+        if end < bytes.len() {
+            out.push_str("\r\n");
+        }
+        offset = end;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -337,5 +372,22 @@ mod tests {
         let ics = render_ics(&[]);
         assert!(ics.starts_with("BEGIN:VCALENDAR\r\n"));
         assert!(ics.contains("X-WR-TIMEZONE:Asia/Shanghai"));
+    }
+
+    #[test]
+    fn fold_ics_line_long_unicode_no_panic() {
+        // #45 回归：超长中文行（原 mac/win 实现在此越界崩溃；rust 端同口径）
+        let line = format!("SUMMARY:[群] {}", "测".repeat(60));
+        let folded = fold_ics_line(&line);
+        for l in folded.split("\r\n") {
+            assert!(l.len() <= 75, "line too long: {}", l.len());
+        }
+        assert_eq!(folded.replace("\r\n ", ""), line);
+        // 短行不折叠
+        assert_eq!(fold_ics_line("SUMMARY:短"), "SUMMARY:短");
+        // 恰好 75 字节不折叠
+        assert_eq!(fold_ics_line(&"a".repeat(75)), "a".repeat(75));
+        // 76 字节触发折叠
+        assert!(fold_ics_line(&"a".repeat(76)).contains("\r\n"));
     }
 }
