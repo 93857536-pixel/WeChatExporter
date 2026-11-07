@@ -22,9 +22,6 @@ public static class CloudBackupService
     /// <summary>并发上传数上限。</summary>
     public const int MaxConcurrency = 3;
 
-    /// <summary>失败重试次数（指数退避）。</summary>
-    public const int MaxRetries = 3;
-
     /// <summary>
     /// 把导出目录整体加密为 .wxenc 并上传（同名覆盖）。返回 (usedBytes, quotaBytes)。
     /// 内部在后台线程运行，progress 从 0→1 反映「加密+上传」整体进度。
@@ -114,30 +111,8 @@ public static class CloudBackupService
                 Array.Copy(blob, offset, chunk, 0, len);
                 var b64 = Convert.ToBase64String(chunk);
 
-                Exception? last = null;
-                for (int attempt = 1; attempt <= MaxRetries; attempt++)
-                {
-                    try
-                    {
-                        await client.UploadChunkAsync(BackupFileName, idx, b64, ct).ConfigureAwait(false);
-                        last = null;
-                        break;
-                    }
-                    catch (CloudApiException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests && attempt < MaxRetries)
-                    {
-                        last = ex;
-                        await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), ct).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        last = ex;
-                        if (attempt < MaxRetries)
-                            await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), ct).ConfigureAwait(false);
-                        else
-                            throw;
-                    }
-                }
-                if (last is not null) throw last;
+                // 传输层重试（TLS 重置/5xx/429，指数退避）已在 CloudBackupClient.SendWithRetryAsync 内实现，此处直接调用
+                await client.UploadChunkAsync(BackupFileName, idx, b64, ct).ConfigureAwait(false);
 
                 var done = Interlocked.Increment(ref completed);
                 var pct = (int)(done * 100L / chunkCount);
@@ -182,7 +157,8 @@ public static class CloudBackupService
             int lastBucket = -1;
             for (int idx = 0; idx < item.ChunkCount; idx++)
             {
-                var chunk = await DownloadChunkWithRetryAsync(client, item.Name, idx, ct).ConfigureAwait(false);
+                // 传输层重试（TLS 重置/5xx/429，指数退避）已在 CloudBackupClient.SendWithRetryAsync 内实现，此处直接调用
+                var chunk = await client.DownloadChunkAsync(item.Name, idx, ct).ConfigureAwait(false);
                 await fs.WriteAsync(chunk, ct).ConfigureAwait(false);
                 written += chunk.Length;
                 var pct = item.TotalSize > 0 ? (int)(written * 100L / item.TotalSize) : 100;
@@ -200,31 +176,5 @@ public static class CloudBackupService
         log("云备份：正在解密（AES-256-GCM）…");
         var n = await Task.Run(() => EncryptedExport.DecryptFile(destWxencPath, password, decryptDir, log), ct).ConfigureAwait(false);
         log($"云备份：解密完成 {n} 个文件 → {decryptDir}");
-    }
-
-    private static async Task<byte[]> DownloadChunkWithRetryAsync(CloudBackupClient client, string name, int idx, CancellationToken ct)
-    {
-        Exception? last = null;
-        for (int attempt = 1; attempt <= MaxRetries; attempt++)
-        {
-            try
-            {
-                return await client.DownloadChunkAsync(name, idx, ct).ConfigureAwait(false);
-            }
-            catch (CloudApiException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests && attempt < MaxRetries)
-            {
-                last = ex;
-                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                last = ex;
-                if (attempt < MaxRetries)
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), ct).ConfigureAwait(false);
-                else
-                    throw;
-            }
-        }
-        throw last!;
     }
 }

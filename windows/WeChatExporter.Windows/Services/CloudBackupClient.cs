@@ -177,42 +177,150 @@ public sealed class CloudBackupClient
     /// <summary>下载单个分块（application/octet-stream 密文）。</summary>
     public async Task<byte[]> DownloadChunkAsync(string name, int idx, CancellationToken ct = default)
     {
-        var req = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/backup/chunk?name={Uri.EscapeDataString(name)}&idx={idx}");
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode)
-            throw await BuildExceptionAsync(resp, ct).ConfigureAwait(false);
-        return await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get,
+                $"{BaseUrl}/backup/chunk?name={Uri.EscapeDataString(name)}&idx={idx}");
+            AddAuth(req);
+            return req;
+        }, ct).ConfigureAwait(false);
+        using (resp)
+        {
+            if (!resp.IsSuccessStatusCode)
+                throw await BuildExceptionAsync(resp, ct).ConfigureAwait(false);
+            return await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>删除云端备份（DELETE 携带 JSON body，与契约一致）。</summary>
     public async Task DeleteFileAsync(string name, CancellationToken ct = default)
     {
-        var req = new HttpRequestMessage(HttpMethod.Delete, BaseUrl + "/backup/file");
-        req.Content = new StringContent(JsonSerializer.Serialize(new { name }, JsonOpts), Encoding.UTF8, "application/json");
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode)
-            throw await BuildExceptionAsync(resp, ct).ConfigureAwait(false);
+        var json = JsonSerializer.Serialize(new { name }, JsonOpts);
+        var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Delete, BaseUrl + "/backup/file");
+            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            AddAuth(req);
+            return req;
+        }, ct).ConfigureAwait(false);
+        using (resp)
+        {
+            if (!resp.IsSuccessStatusCode)
+                throw await BuildExceptionAsync(resp, ct).ConfigureAwait(false);
+        }
     }
 
     // MARK: - 底层
 
     private async Task<JsonObject> PostJsonAsync(string path, object body, bool auth, CancellationToken ct)
     {
-        var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path);
-        req.Content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
-        if (auth) AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var json = JsonSerializer.Serialize(body, JsonOpts);
+        // 每次 attempt 重建请求（POST 带 Content，不能复用已发送的 HttpRequestMessage）
+        var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, BaseUrl + path);
+            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            if (auth) AddAuth(req);
+            return req;
+        }, ct).ConfigureAwait(false);
         return await ParseOkAsync(resp, ct).ConfigureAwait(false);
     }
 
     private async Task<JsonObject> GetJsonAsync(string path, CancellationToken ct)
     {
-        var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
-        AddAuth(req);
-        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
+            AddAuth(req);
+            return req;
+        }, ct).ConfigureAwait(false);
         return await ParseOkAsync(resp, ct).ConfigureAwait(false);
+    }
+
+    // MARK: - 传输层重试
+
+    /// <summary>
+    /// 传输层指数退避重试（覆盖 GFW 对未备案域名的间歇性 TLS 重置）：
+    /// 连接类失败（HttpRequestException，含 TLS 握手 RST / 连接重置 / 超时）与 5xx、429 重试，
+    /// 1/2/4/8s 共 5 次；4xx 语义错误与用户取消（OperationCanceled）立即上抛不重试。
+    /// POST/DELETE 带 Content，故每次 attempt 经 <c>factory</c> 重建请求，不复用已发送的 HttpRequestMessage。
+    /// 重试耗尽后：429 保留原始 CloudApiException（含 retryAfter 提示）；其余抛友好 CloudApiException。
+    /// </summary>
+    private static readonly int[] RetryDelaysMs = { 1_000, 2_000, 4_000, 8_000 };
+
+    private async Task<HttpResponseMessage> SendWithRetryAsync(
+        Func<HttpRequestMessage> factory, CancellationToken ct)
+    {
+        CloudApiException? last429 = null;
+        for (int attempt = 0; attempt <= RetryDelaysMs.Length; attempt++)
+        {
+            var req = factory();
+            HttpResponseMessage? resp = null;
+            Exception? connError = null;
+            try
+            {
+                resp = await _http.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+            }
+            catch (HttpRequestException)
+            {
+                // 连接层失败（TLS 握手被重置 / 连接拒绝 / 无网络 / 中途断开）→ 可重试
+                connError = new HttpRequestException("网络连接不稳定（安全连接建立失败）");
+                resp = null;
+            }
+            catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                // HttpClient.Timeout 触发的取消（非用户取消）→ 可重试；用户主动取消则上抛
+                connError = ex;
+                resp = null;
+            }
+
+            if (resp is not null)
+            {
+                var code = (int)resp.StatusCode;
+                bool retryable = code >= 500 || code == 429;
+                if (!retryable)
+                    return resp; // 成功 或 4xx 语义错误：直接返回/上抛
+                // 429/5xx 需要重试：读 body 取 retryAfterSec 再释放
+                int? retryAfterSec = null;
+                try
+                {
+                    var raw = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    var node = JsonNode.Parse(raw) as JsonObject;
+                    retryAfterSec = node is not null ? GetInt(node, "retryAfterSec") : null;
+                }
+                catch { /* body 读取失败不影响重试判定 */ }
+                finally { resp.Dispose(); }
+
+                if (code == 429)
+                {
+                    last429 = new CloudApiException(resp.StatusCode,
+                        retryAfterSec is { } r ? $"请求过于频繁，请 {r} 秒后重试" : "请求过于频繁，请稍后重试",
+                        retryAfterSec);
+                }
+                if (attempt == RetryDelaysMs.Length)
+                {
+                    // 重试耗尽：429 保留带 retryAfter 的友好异常；5xx 给通用提示
+                    throw last429 ?? new CloudApiException((HttpStatusCode)code,
+                        "服务器暂时不可用（多次重试仍失败），请稍后再试");
+                }
+                int delayMs = RetryDelaysMs[attempt];
+                if (retryAfterSec is { } ra && code == 429 && ra > 0)
+                    delayMs = Math.Max(delayMs, ra * 1000);
+                await Task.Delay(delayMs, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            // connError 非空（连接失败）：重试
+            if (attempt == RetryDelaysMs.Length)
+            {
+                // 599 是「无 HTTP 状态」的哨兵值（真实服务器不会返回），表示传输层重试耗尽
+                throw new CloudApiException((HttpStatusCode)599,
+                    "网络连接不稳定（多次重试仍无法建立安全连接）。请稍后重试，或检查网络/代理设置");
+            }
+            await Task.Delay(RetryDelaysMs[attempt], ct).ConfigureAwait(false);
+        }
+        // 理论上不可达（循环内已 return/throw）
+        throw new CloudApiException((HttpStatusCode)599, "网络连接失败");
     }
 
     private void AddAuth(HttpRequestMessage req)
@@ -223,9 +331,16 @@ public sealed class CloudBackupClient
 
     private async Task<JsonObject> ParseOkAsync(HttpResponseMessage resp, CancellationToken ct)
     {
-        var node = await ReadJsonAsync(resp, ct).ConfigureAwait(false);
-        if (resp.IsSuccessStatusCode) return node;
-        throw BuildException(resp.StatusCode, node);
+        try
+        {
+            var node = await ReadJsonAsync(resp, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode) return node;
+            throw BuildException(resp.StatusCode, node);
+        }
+        finally
+        {
+            resp.Dispose();
+        }
     }
 
     private async Task<CloudApiException> BuildExceptionAsync(HttpResponseMessage resp, CancellationToken ct)

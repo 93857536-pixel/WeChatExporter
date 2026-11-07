@@ -17,6 +17,7 @@ enum CloudBackupError: LocalizedError, Sendable {
     case notLoggedIn
     case invalidInput(String)
     case network(String)
+    case networkExhausted
     case http(Int, String)
     case rateLimited(retryAfterSec: Int)
     case quotaExceeded(String)
@@ -32,6 +33,7 @@ enum CloudBackupError: LocalizedError, Sendable {
         case .notLoggedIn: return "尚未登录云备份"
         case .invalidInput(let m): return m
         case .network(let m): return "网络错误：\(m)"
+        case .networkExhausted: return "网络连接不稳定（多次重试仍失败）。请稍后重试，或检查网络/代理设置"
         case .http(let code, let m): return "服务器返回 \(code)：\(m)"
         case .rateLimited(let s): return "操作过于频繁，请 \(s) 秒后再试"
         case .quotaExceeded(let m): return "云端空间不足：\(m)"
@@ -210,14 +212,83 @@ enum CloudBackupAPI {
         request.httpBody = bodyData
         request.timeoutInterval = 120
 
+        let finalRequest = request // 不可变副本供 @Sendable 闭包捕获
+        return try await withTransportRetry {
+            try await execute(finalRequest)
+        }
+    }
+
+    /// 单次 HTTP 执行（无重试）：成功 2xx 返回 (data, response)，非 2xx 抛 CloudBackupError。
+    private static func execute(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudBackupError.network("无效响应")
         }
-        if (200..<300).contains(http.statusCode) {
-            return (data, http)
+        guard (200..<300).contains(http.statusCode) else {
+            try throwHTTPError(http.statusCode, data: data)
+            fatalError("unreachable")
         }
-        try throwHTTPError(http.statusCode, data: data)
+        return (data, http)
+    }
+
+    /// 传输层指数退避重试：仅「连接类」失败与 5xx/429 重试（1/2/4/8/16s 共 5 次）。
+    /// 4xx（401/404/409 等语义错误）立即上抛不重试——业务失败不该被网络重试掩盖。
+    /// 用于覆盖 GFW 对未备案域名的间歇性 TLS 重置：单次握手被 RST 时自动跨过失败窗口。
+    private static func withTransportRetry<T: Sendable>(
+        _ op: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        var lastError: Error?
+        for attempt in 0..<5 {
+            do {
+                return try await op()
+            } catch let e as CloudBackupError {
+                switch e {
+                case .rateLimited, .network, .networkExhausted:
+                    lastError = e
+                case .http(let code, _) where code >= 500:
+                    lastError = e
+                default:
+                    throw e // 4xx 语义错误，不重试
+                }
+            } catch let e as URLError {
+                if e.code == .cancelled {
+                    throw e // 用户主动取消（取消上传/下载），立即停止
+                }
+                if isTransientURLError(e) {
+                    lastError = e
+                } else {
+                    throw e // 非瞬时 URLError（如不支持的 URL），不重试
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // 其他底层异常（如 URLSession 内部错误）也视为瞬时，重试
+                lastError = error
+            }
+            if attempt < 4 {
+                let seconds = Int(pow(2.0, Double(attempt))) // 1, 2, 4, 8, 16
+                try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            }
+        }
+        // 重试耗尽：给出可操作的提示（底层 URLError 文案对用户太技术）
+        if lastError is URLError {
+            throw CloudBackupError.networkExhausted
+        }
+        throw lastError ?? CloudBackupError.network("未知错误")
+    }
+
+    /// 判断 URLError 是否属于「可重试的瞬时网络故障」。
+    private static func isTransientURLError(_ e: URLError) -> Bool {
+        switch e.code {
+        case .notConnectedToInternet, .networkConnectionLost, .timedOut,
+             .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+             .resourceUnavailable, .serverCertificateUntrusted,
+             .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot,
+             .secureConnectionFailed, .badServerResponse:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func throwHTTPError(_ statusCode: Int, data: Data) throws -> Never {
@@ -294,11 +365,25 @@ enum CloudBackupAPI {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 120
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            try throwHTTPError((response as? HTTPURLResponse)?.statusCode ?? 0, data: data)
+
+        let finalRequest = request // 不可变副本供 @Sendable 闭包捕获
+        let (data, _) = try await withTransportRetry {
+            try await Self.executeDownload(finalRequest)
         }
         return data
+    }
+
+    /// 单次分块下载执行（无重试，供 withTransportRetry 包裹）：2xx 返回 data，非 2xx 抛 CloudBackupError。
+    private static func executeDownload(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudBackupError.network("无效响应")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            try throwHTTPError(http.statusCode, data: data)
+            fatalError("unreachable")
+        }
+        return (data, http)
     }
 
     static func deleteFile(token: String, name: String) async throws {
@@ -319,7 +404,6 @@ enum CloudBackupTransfer {
     static let category = "other"
     static let chunkSize = 4 * 1024 * 1024            // 4 MiB，落在契约 [65536, 8388608]
     static let maxConcurrency = 3
-    static let maxRetries = 5
 
     private static let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "WeChatExporter",
@@ -419,9 +503,8 @@ enum CloudBackupTransfer {
             let offset = Int64(idx) * Int64(chunkSize)
             let length = min(Int64(chunkSize), totalSize - offset)
             let chunk = mapped.subdata(in: Int(offset)..<Int(offset + length))
-            try await withRetry {
-                try await CloudBackupAPI.uploadChunk(token: token, name: backupFileName, chunkIdx: idx, data: chunk)
-            }
+            // 传输层重试（TLS 重置/5xx/429）已在 CloudBackupAPI 内实现，此处直接调用
+            try await CloudBackupAPI.uploadChunk(token: token, name: backupFileName, chunkIdx: idx, data: chunk)
             await reporter.markDone(idx)
         }
     }
@@ -446,9 +529,7 @@ enum CloudBackupTransfer {
         let reporter = ChunkProgress(total: file.chunkCount, onProgress: progress)
 
         try await forEachLimited(Array(0..<file.chunkCount), limit: maxConcurrency) { idx in
-            let data = try await withRetry {
-                try await CloudBackupAPI.downloadChunk(token: token, name: file.name, idx: idx)
-            }
+            let data = try await CloudBackupAPI.downloadChunk(token: token, name: file.name, idx: idx)
             let offset = UInt64(idx) * UInt64(file.chunkSize)
             try await assembler.write(data, at: offset)
             await reporter.markDone(idx)
@@ -467,7 +548,7 @@ enum CloudBackupTransfer {
         return count
     }
 
-    // MARK: 并发 + 重试
+    // MARK: 并发
 
     /// 以最大 `limit` 并发遍历 `items`，任意子任务抛错即取消其余并抛出。
     private static func forEachLimited(
@@ -492,36 +573,6 @@ enum CloudBackupTransfer {
                 }
             }
         }
-    }
-
-    /// 指数退避重试：仅网络错误 / 5xx / 429 重试，4xx（除 429）立即抛出。
-    private static func withRetry<T: Sendable>(
-        _ op: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        var lastError: Error?
-        for attempt in 0..<maxRetries {
-            do {
-                return try await op()
-            } catch let e as CloudBackupError {
-                switch e {
-                case .rateLimited:
-                    lastError = e
-                case .network:
-                    lastError = e
-                case .http(let code, _) where code >= 500:
-                    lastError = e
-                default:
-                    throw e
-                }
-            } catch {
-                lastError = error
-            }
-            if attempt < maxRetries - 1 {
-                let seconds = Int(pow(2.0, Double(attempt)))  // 1, 2, 4, 8, 16
-                try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
-            }
-        }
-        throw lastError ?? CloudBackupError.network("未知错误")
     }
 }
 

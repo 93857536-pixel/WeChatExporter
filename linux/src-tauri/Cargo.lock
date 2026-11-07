@@ -4328,7 +4328,7 @@ dependencies = [
 
 [[package]]
 name = "wechat-exporter-linux"
-version = "2.21.3"
+version = "2.21.6"
 dependencies = [
  "aes-gcm",
  "chrono",
