@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.21.7] - 2026-11-20
+
+### Fixed（issue #47: Windows「unexpected argument '--data-dir'」）
+
+- **修复: WxCliService 移除 wx.exe（闭源 clap）不支持的 `--data-dir` 参数**
+  - #47: Windows 用户微信 4.2.0.53，点「准备数据」时报错 `error: unexpected argument '--data-dir' found | Usage: wx.exe init --force`
+  - Root cause: `WxCliService.InitFreshAsync` 在兜底路径中向 wx.exe 发出 `init --force --data-dir <dir>`，但闭源 vendor wx.exe（基于 clap 构建）的参数表中**只有 `--filter/--force/--help/--overwrite/--since/--user`**，不接受 `--data-dir`，导致 clap 立即报错退出；此时 config.json 已由上方 `WriteDataDirToConfigAsync` 写入正确的 `db_dir`，故不需要该参数。
+  - Fix: 删除 `--data-dir` 参数，改为依赖已写入 config.json 的 `db_dir`——与 wx.exe 真实配置协议一致（二进制内可见 `读取 config.db_dir 失败` / `请手动编辑 config.json 中的 db_dir 字段`）。
+  - 验证: macOS 上搭建行为台（fake wx.exe 模拟 clap 拒收 `--data-dir`），三个场景全部 PASS：① fixed+config-ok → 全程无 `--data-dir`、`PrepareDataAsync` 正常完成；② fixed+config-deny → 无 clap 噪音，走应用层内存扫描兜底链路；③ orig+config-deny → 完整复现原 bug「unexpected argument '--data-dir'」。双端编译 0 错。
+
+---
+
 ## [2.21.6] - 2026-11-07
 
 ### Fixed（云备份登录/注册间歇性「安全连接失败 / TLS 错误」）

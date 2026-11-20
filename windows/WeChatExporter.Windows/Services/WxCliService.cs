@@ -260,8 +260,10 @@ public sealed class WxCliService
                 await WriteDataDirToConfigAsync(configPath, dataDir, log);
                 try
                 {
+                    // #47：vendor wx.exe（clap）不支持 --data-dir（"unexpected argument '--data-dir'"），
+                    // 数据目录只能经 config.json 的 db_dir 传递（上面 WriteDataDirToConfigAsync 已写入），此处直接 init --force。
                     progress?.Invoke(tracker.Warmup("正在使用数据目录重新初始化…"));
-                    var output2 = await RunAsync(["init", "--force", "--data-dir", dataDir], InitTimeoutSeconds, log, cancellationToken);
+                    var output2 = await RunAsync(["init", "--force"], InitTimeoutSeconds, log, cancellationToken);
                     ThrowIfInitFailedToExtractKeys(output2);
                 }
                 catch (Exception ex2)
